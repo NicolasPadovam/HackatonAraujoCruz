@@ -4,6 +4,7 @@ import { KanbanRenovacoes } from '../components/KanbanRenovacoes'
 import { RenovacaoSheet } from '../components/RenovacaoSheet'
 import { FAIXA, PageHeader, RamoBadge, STATUS, Segmentos, SeletorMes, Select, StatusBadge, TD, TH, Vazio, type Opcao } from '../components/ui'
 import type { Ramo, StatusRenovacao } from '../domain/types'
+import { FUNCAO_LABEL, STATUS_ORDEM, atividadeDe, statusEmAberto } from '../lib/atividades'
 import { useIndices, useStore } from '../data/store'
 import { faixaVencimento, fmtData, hojeIso, mesesRecentes, mesKey, mesLabel, normalizarNome, prazoLabel } from '../lib/format'
 
@@ -58,7 +59,7 @@ export default function Renovacoes() {
 
       <div className="space-y-6 px-8 py-6">
         {modo === 'lista' && <div className="grid grid-cols-4 gap-4">
-          {(Object.keys(STATUS) as StatusRenovacao[]).map((s) => (
+          {STATUS_ORDEM.map((s) => (
             <button
               key={s}
               onClick={() => setStatus(status === s ? 'todos' : s)}
@@ -121,12 +122,14 @@ export default function Renovacoes() {
                   <th className={TH}>Seguradora</th>
                   <th className={TH}>Corretor</th>
                   <th className={TH}>Status</th>
+                  <th className={TH}>Próxima atividade</th>
                   <th className={TH}>Prazo</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {lista.map(({ r, seguro, cliente }) => {
-                  const aberto = r.status === 'pendente' || r.status === 'cotando'
+                  const aberto = statusEmAberto(r.status)
+                  const atividade = atividadeDe(r)
                   const faixa = aberto ? faixaVencimento(r.vencimento) : null
                   return (
                     <tr key={r.id} onClick={() => setAberta(r.id)} className="cursor-pointer hover:bg-marca-50/50">
@@ -136,6 +139,9 @@ export default function Renovacoes() {
                       <td className={`${TD} text-slate-600`}>{ix.seguradora.get(seguro.seguradoraId)?.nome}</td>
                       <td className={`${TD} text-slate-600`}>{ix.corretor.get(r.corretorId ?? '')?.nome ?? '—'}</td>
                       <td className={TD}><StatusBadge status={r.status} /></td>
+                      <td className={`${TD} text-slate-600`}>
+                        {atividade ? <>{atividade.texto} <span className="text-xs text-slate-400">· {FUNCAO_LABEL[atividade.funcao]}</span></> : '—'}
+                      </td>
                       <td className={`${TD} whitespace-nowrap ${faixa ? FAIXA[faixa].texto : 'text-slate-400'}`}>
                         {aberto ? prazoLabel(r.vencimento) : '—'}
                       </td>

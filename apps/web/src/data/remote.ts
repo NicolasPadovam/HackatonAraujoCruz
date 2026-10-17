@@ -3,7 +3,8 @@
 // Sem dados reais aqui: nada além de mapeamento.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Cliente, Corretor, Cotacao, Db, Importacao, ModeloImportacao, Renovacao, Seguradora, Seguro } from '../domain/types'
+import type { Acesso, Cliente, Corretor, Cotacao, Db, Funcao, Importacao, ModeloImportacao, Renovacao, Seguradora, Seguro, Usuario } from '../domain/types'
+import type { DadosCotacao } from '../lib/atividades'
 
 type Row = Record<string, unknown>
 
@@ -50,7 +51,12 @@ export async function carregarDb(client: SupabaseClient): Promise<Db> {
       observacoes: texto(r.observacoes),
       origem: r.origem as Cliente['origem'],
     })),
-    seguradoras: seguradoras.map((r): Seguradora => ({ id: r.id as string, nome: r.nome as string, apelidos: (r.apelidos as string[] | null) ?? [] })),
+    seguradoras: seguradoras.map((r): Seguradora => ({
+      id: r.id as string,
+      nome: r.nome as string,
+      apelidos: (r.apelidos as string[] | null) ?? [],
+      ativa: r.ativa == null ? undefined : (r.ativa as boolean),
+    })),
     corretores: corretores.map((r): Corretor => ({ id: r.id as string, nome: r.nome as string, sigla: r.sigla as string })),
     seguros: seguros.map((r): Seguro => ({
       id: r.id as string,
@@ -84,6 +90,8 @@ export async function carregarDb(client: SupabaseClient): Promise<Db> {
       ramo: r.ramo === 'outros' ? 'outro' : (r.ramo as Cotacao['ramo']),
       seguradoraId: r.seguradora_id as string,
       premio: numero(r.premio),
+      comissaoPct: numero(r.comissao_pct),
+      caminho: texto(r.caminho) as Cotacao['caminho'],
       origem: r.origem as Cotacao['origem'],
       status: r.status as Cotacao['status'],
       data: r.data as string,
@@ -94,6 +102,7 @@ export async function carregarDb(client: SupabaseClient): Promise<Db> {
         arquivoNome: r.arquivo_nome as string,
         aba: texto(r.aba) ?? '',
         mesReferencia: (r.mes_referencia as string).slice(0, 7),
+        seguradoraId: texto(r.seguradora_id) ?? null,
         importadoPor: texto(r.importado_por_nome) ?? 'Equipe',
         importadoEm: r.importado_em as string,
         linhasOk: r.linhas_ok as number,
@@ -169,6 +178,8 @@ function mensagem(error: { message: string; code?: string }): string {
   if (error.code === '23505' && error.message.includes('numero')) return 'Já existe um seguro com este número de apólice nesta seguradora.'
   if (error.code === 'PGRST202') return 'A função cadastrar_seguro não existe no banco: aplique a migration 20261017000300_cadastro_manual.'
   if (error.code === '42501') return 'Seu usuário não tem permissão para esta gravação.'
+  if (error.code === '23514') return error.message // regras do fluxo (etapas, cotação, administradores)
+  if (error.code === 'PGRST202' && error.message.includes('avancar_renovacao')) return 'A função avancar_renovacao não existe no banco: aplique as migrations 000600 e 000700.'
   return error.message
 }
 
@@ -199,7 +210,7 @@ export async function atualizarSeguro(client: SupabaseClient, s: Seguro) {
     .from('renovacoes')
     .update({ vencimento: s.fimVigencia })
     .eq('seguro_id', s.id)
-    .in('status', ['pendente', 'cotando'])
+    .in('status', ['pendente', 'cotando', 'cotada', 'enviada', 'negociando'])
   if (e2) throw new Error(mensagem(e2))
 }
 
@@ -254,6 +265,11 @@ export async function importarLote(client: SupabaseClient, lote: LoteImportacao)
     if (error.code === 'PGRST202') throw new Error('A função importar_lote não existe no banco: aplique a migration 20261017000400_importacao_xlsx.')
     throw new Error(mensagem(error))
   }
+  // Seguradora do relatório (aviso do ciclo de importação). Antes da migration 000700 a coluna não existe: ignora.
+  if (imp.seguradoraId) {
+    const { error: e2 } = await client.from('importacoes').update({ seguradora_id: imp.seguradoraId }).eq('id', imp.id)
+    if (e2 && e2.code !== '42703' && e2.code !== 'PGRST204') throw new Error(mensagem(e2))
+  }
 }
 
 export async function salvarModelo(client: SupabaseClient, m: ModeloImportacao, novo: boolean) {
@@ -262,4 +278,93 @@ export async function salvarModelo(client: SupabaseClient, m: ModeloImportacao, 
     ? await client.from('modelos_importacao').insert({ id: m.id, ...linha })
     : await client.from('modelos_importacao').update(linha).eq('id', m.id)
   if (error) throw new Error(mensagem(error))
+}
+
+// ---------------------------------------------------------------------------
+// Etapas da renovação
+// ---------------------------------------------------------------------------
+
+/** Cotação (quando exigida) + nova etapa numa transação (função avancar_renovacao, migration 000700). */
+export async function avancarRenovacao(
+  client: SupabaseClient,
+  id: string,
+  status: Renovacao['status'],
+  dados: { cotacao?: DadosCotacao; seguradoraFechadaId?: string },
+) {
+  const { error } = await client.rpc('avancar_renovacao', {
+    p_renovacao: id,
+    p_status: status,
+    p_cotacao: dados.cotacao
+      ? {
+          seguradora_id: dados.cotacao.seguradoraId,
+          premio: dados.cotacao.premio,
+          comissao_pct: dados.cotacao.comissaoPct ?? null,
+          caminho: dados.cotacao.caminho ?? null,
+        }
+      : null,
+    p_seguradora_fechada: dados.seguradoraFechadaId ?? null,
+  })
+  if (error) throw new Error(mensagem(error))
+}
+
+// ---------------------------------------------------------------------------
+// Usuários (Configurações)
+// ---------------------------------------------------------------------------
+
+const ACESSO_POR_PAPEL = (papel: unknown): Acesso => (papel === 'admin' ? 'administrador' : 'usuario')
+const PAPEL_POR_ACESSO: Record<Acesso, string> = { administrador: 'admin', usuario: 'corretor' }
+
+export function linhaUsuario(r: Row): Usuario {
+  return {
+    id: r.id as string,
+    nome: r.nome as string,
+    email: texto(r.email) ?? '',
+    funcao: ((r.funcao as Funcao | null) ?? 'administrativo'),
+    acesso: ACESSO_POR_PAPEL(r.papel),
+    ativo: r.ativo as boolean,
+  }
+}
+
+export async function carregarPerfil(client: SupabaseClient, id: string): Promise<Usuario | null> {
+  const { data, error } = await client.from('perfis').select('*').eq('id', id).maybeSingle()
+  if (error) throw new Error(error.message)
+  return data ? linhaUsuario(data as Row) : null
+}
+
+/** Só administradores enxergam a lista inteira (policy perfis_select). */
+export async function listarUsuarios(client: SupabaseClient): Promise<Usuario[]> {
+  const { data, error } = await client.from('perfis').select('*').order('nome')
+  if (error) throw new Error(mensagem(error))
+  return (data as Row[]).map(linhaUsuario)
+}
+
+export async function atualizarUsuario(client: SupabaseClient, u: Pick<Usuario, 'id' | 'nome' | 'funcao' | 'acesso'>) {
+  const { error } = await client
+    .from('perfis')
+    .update({ nome: u.nome, funcao: u.funcao, papel: PAPEL_POR_ACESSO[u.acesso] })
+    .eq('id', u.id)
+  if (error) throw new Error(mensagem(error))
+}
+
+async function chamarGerirUsuarios(client: SupabaseClient, corpo: Record<string, unknown>) {
+  const { data, error } = await client.functions.invoke('gerir-usuarios', { body: corpo })
+  if (error) {
+    // Respostas de erro da função trazem { erro } no corpo.
+    const resp = (error as { context?: Response }).context
+    const detalhe = resp ? await resp.json().catch(() => null) : null
+    throw new Error(detalhe?.erro ?? 'Não foi possível concluir. Confira se a função gerir-usuarios foi publicada.')
+  }
+  return data as Record<string, unknown>
+}
+
+export async function convidarUsuario(
+  client: SupabaseClient,
+  u: Pick<Usuario, 'nome' | 'email' | 'funcao' | 'acesso'>,
+): Promise<string> {
+  const r = await chamarGerirUsuarios(client, { acao: 'criar', ...u, redirectTo: window.location.origin + window.location.pathname })
+  return r.id as string
+}
+
+export async function mudarSituacaoUsuario(client: SupabaseClient, id: string, ativo: boolean) {
+  await chamarGerirUsuarios(client, { acao: 'situacao', id, ativo })
 }

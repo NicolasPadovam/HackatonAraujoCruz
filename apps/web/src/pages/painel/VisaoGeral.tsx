@@ -1,17 +1,18 @@
 import { ArrowRight } from 'lucide-react'
 import { useMemo } from 'react'
 import { Linhas } from '../../components/graficos'
-import { Card, RAMO, STATUS, Secao, TD, TH } from '../../components/ui'
-import type { Ramo, StatusRenovacao } from '../../domain/types'
+import { Card, MACRO, RAMO, Secao, TD, TH } from '../../components/ui'
+import type { Ramo } from '../../domain/types'
+import { macroStatus, statusEmAberto, type Macro } from '../../lib/atividades'
 import { useIndices, useStore } from '../../data/store'
 import { DIAS_ALERTA, faixaVencimento, fmtData, fmtMoeda, mesKey, mesLabel } from '../../lib/format'
 import { SEM_CORRETOR, type Periodo, mesesDoAno, taxaPorMes } from '../../lib/metricas'
 
-const ORDEM: StatusRenovacao[] = ['renovada', 'nao_renovada', 'cotando', 'pendente']
-type Grupo = Record<StatusRenovacao, number>
+const ORDEM: Macro[] = ['renovada', 'nao_renovada', 'cancelada', 'andamento', 'pendente']
+type Grupo = Record<Macro, number>
 
 function total(g: Grupo) {
-  return g.pendente + g.cotando + g.renovada + g.nao_renovada
+  return ORDEM.reduce((t, m) => t + g[m], 0)
 }
 
 function Barra({ g }: { g: Grupo }) {
@@ -19,7 +20,7 @@ function Barra({ g }: { g: Grupo }) {
   return (
     <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
       {ORDEM.map((s) => (
-        <span key={s} className={STATUS[s].ponto} style={{ width: t ? `${(g[s] / t) * 100}%` : 0 }} />
+        <span key={s} className={MACRO[s].ponto} style={{ width: t ? `${(g[s] / t) * 100}%` : 0 }} />
       ))}
     </div>
   )
@@ -67,14 +68,14 @@ export default function VisaoGeral({ periodo }: { periodo: Periodo }) {
     type Item = (typeof doMes)[number]
     const conta = (f: (x: Item) => boolean) => doMes.filter(f).length
     const renovadas = conta(({ r }) => r.status === 'renovada')
-    const naoRenovadas = conta(({ r }) => r.status === 'nao_renovada')
+    const naoRenovadas = conta(({ r }) => r.status === 'nao_renovada' || r.status === 'cancelada')
 
     const agrupar = (chave: (x: Item) => string) => {
       const m = new Map<string, Grupo>()
       for (const x of doMes) {
         const k = chave(x)
-        const g = m.get(k) ?? { pendente: 0, cotando: 0, renovada: 0, nao_renovada: 0 }
-        g[x.r.status]++
+        const g = m.get(k) ?? { pendente: 0, andamento: 0, renovada: 0, nao_renovada: 0, cancelada: 0 }
+        g[macroStatus(x.r.status)]++
         m.set(k, g)
       }
       return [...m.entries()].sort((a, b) => total(b[1]) - total(a[1]))
@@ -83,9 +84,9 @@ export default function VisaoGeral({ periodo }: { periodo: Periodo }) {
     return {
       total: doMes.length,
       taxa: renovadas + naoRenovadas ? Math.round((renovadas / (renovadas + naoRenovadas)) * 100) : null,
-      vencendo: conta(({ r }) => (r.status === 'pendente' || r.status === 'cotando') && faixaVencimento(r.vencimento) != null),
-      urgentes: conta(({ r }) => (r.status === 'pendente' || r.status === 'cotando') && faixaVencimento(r.vencimento) === 'urgente'),
-      emAberto: conta(({ r }) => r.status === 'pendente' || r.status === 'cotando'),
+      vencendo: conta(({ r }) => statusEmAberto(r.status) && faixaVencimento(r.vencimento) != null),
+      urgentes: conta(({ r }) => statusEmAberto(r.status) && faixaVencimento(r.vencimento) === 'urgente'),
+      emAberto: conta(({ r }) => statusEmAberto(r.status)),
       trocas: doMes.filter(({ r, s }) => r.seguradoraFechadaId && r.seguradoraFechadaId !== s.seguradoraId),
       comissao: doMes
         .filter(({ r }) => r.status === 'renovada')
@@ -142,7 +143,7 @@ export default function VisaoGeral({ periodo }: { periodo: Periodo }) {
 
       <div className="flex gap-4 text-xs text-slate-600">
         {ORDEM.map((s) => (
-          <span key={s} className="flex items-center gap-1.5"><span className={`size-2 rounded-full ${STATUS[s].ponto}`} />{STATUS[s].label}</span>
+          <span key={s} className="flex items-center gap-1.5"><span className={`size-2 rounded-full ${MACRO[s].ponto}`} />{MACRO[s].label}</span>
         ))}
       </div>
 

@@ -1,17 +1,21 @@
-import { BarChart3, CalendarClock, House, Loader2, LogOut, Map, Upload, Users, X } from 'lucide-react'
-import { HashRouter, NavLink, Outlet, Route, Routes } from 'react-router-dom'
+import { BarChart3, CalendarClock, House, Loader2, LogOut, Map, Settings, Upload, Users, X } from 'lucide-react'
+import type { ReactNode } from 'react'
+import { HashRouter, Navigate, NavLink, Outlet, Route, Routes } from 'react-router-dom'
 import AuthGate, { useSessao } from './auth/AuthGate'
 import { DbProvider, useStore } from './data/store'
 import ClienteFicha from './pages/ClienteFicha'
 import Clientes from './pages/Clientes'
+import Configuracoes from './pages/Configuracoes'
 import Importar from './pages/Importar'
 import Inicio from './pages/Inicio'
 import Painel from './pages/Painel'
 import Renovacoes from './pages/Renovacoes'
 import Roadmap from './pages/Roadmap'
+import type { Acesso, Funcao } from './domain/types'
+import { FUNCAO_LABEL } from './lib/atividades'
 
 const MENU = [
-  { to: '/', label: 'Início', icone: House },
+  { to: '/', label: 'Minhas atividades', icone: House },
   { to: '/renovacoes', label: 'Renovações', icone: CalendarClock },
   { to: '/clientes', label: 'Clientes', icone: Users },
   { to: '/importar', label: 'Importar planilha', icone: Upload },
@@ -37,7 +41,7 @@ function ItemMenu({ to, label, icone: Icone }: { to: string; label: string; icon
 
 function Layout() {
   const { modo, carregando, erro, limparErro } = useStore()
-  const { email, sair } = useSessao()
+  const { email, nome, funcao, acesso, sair, trocarVisao } = useSessao()
   return (
     <div className="flex min-h-screen">
       <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col bg-marca-900 px-3 py-5">
@@ -50,14 +54,32 @@ function Layout() {
         </div>
         <nav className="space-y-1">
           {MENU.map((m) => <ItemMenu key={m.to} {...m} />)}
+          {acesso === 'administrador' && <ItemMenu to="/configuracoes" label="Configurações" icone={Settings} />}
         </nav>
         <div className="mt-auto space-y-3">
           <ItemMenu to="/roadmap" label="Sobre o protótipo" icone={Map} />
-          {modo === 'demo' ? (
-            <p className="px-3 text-[11px] leading-snug text-marca-100/60">Protótipo com dados fictícios</p>
+          {modo === 'demo' && trocarVisao ? (
+            <div className="space-y-2 px-3">
+              <p className="text-[11px] leading-snug text-marca-100/60">Protótipo com dados fictícios. Experimente cada visão:</p>
+              <select
+                aria-label="Ver o sistema como"
+                value={`${funcao}|${acesso}`}
+                onChange={(e) => {
+                  const [f, a] = e.target.value.split('|')
+                  trocarVisao({ funcao: f as Funcao, acesso: a as Acesso })
+                }}
+                className="w-full rounded-md border-0 bg-marca-600/60 px-2 py-1.5 text-xs text-white ring-1 ring-marca-500/60"
+              >
+                <option value="administrativo|administrador">Administrativo · Administrador</option>
+                <option value="administrativo|usuario">Administrativo · Usuário</option>
+                <option value="corretora|administrador">Corretora · Administrador</option>
+                <option value="corretora|usuario">Corretora · Usuário</option>
+              </select>
+            </div>
           ) : (
             <div className="space-y-1 px-3">
-              <p className="truncate text-[11px] text-marca-100/70" title={email ?? ''}>{email}</p>
+              <p className="truncate text-xs font-medium text-white" title={nome}>{nome}</p>
+              <p className="truncate text-[11px] text-marca-100/70" title={email ?? ''}>{FUNCAO_LABEL[funcao]}{email ? ` · ${email}` : ''}</p>
               <button onClick={sair} className="flex items-center gap-2 text-xs font-medium text-marca-100 hover:text-white">
                 <LogOut className="size-3.5" /> Sair
               </button>
@@ -82,6 +104,12 @@ function Layout() {
   )
 }
 
+/** Rota só para administradores: esconder o menu não basta, quem digita o endereço também é barrado. */
+function SoAdministrador({ children }: { children: ReactNode }) {
+  const { acesso } = useSessao()
+  return acesso === 'administrador' ? <>{children}</> : <Navigate to="/" replace />
+}
+
 export default function App() {
   return (
     <AuthGate>
@@ -95,6 +123,7 @@ export default function App() {
               <Route path="clientes/:id" element={<ClienteFicha />} />
               <Route path="importar" element={<Importar />} />
               <Route path="painel" element={<Painel />} />
+              <Route path="configuracoes" element={<SoAdministrador><Configuracoes /></SoAdministrador>} />
               <Route path="roadmap" element={<Roadmap />} />
             </Route>
           </Routes>
