@@ -1,5 +1,6 @@
 import { Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { KanbanRenovacoes } from '../components/KanbanRenovacoes'
 import { RenovacaoSheet } from '../components/RenovacaoSheet'
 import { FAIXA, PageHeader, RamoBadge, STATUS, Segmentos, Select, StatusBadge, TD, TH, Vazio, type Opcao } from '../components/ui'
 import type { Ramo, StatusRenovacao } from '../domain/types'
@@ -17,6 +18,7 @@ export default function Renovacoes() {
   const [status, setStatus] = useState<FiltroStatus>('todos')
   const [corretor, setCorretor] = useState('todos')
   const [busca, setBusca] = useState('')
+  const [modo, setModo] = useState<'lista' | 'kanban'>('lista')
   const [aberta, setAberta] = useState<string | null>(null)
 
   const meses = useMemo(() => mesesRecentes(db.renovacoes.map((r) => r.vencimento)), [db.renovacoes])
@@ -51,11 +53,11 @@ export default function Renovacoes() {
       <PageHeader
         titulo="Renovações"
         subtitulo={`${mesLabel(mes)} · planilha do mês importada`}
-        direita={<Segmentos valor={mes} onChange={setMes} opcoes={meses.map((m) => ({ valor: m, label: mesLabel(m, true) }))} />}
+        direita={<SeletorMes valor={mes} meses={meses} onChange={setMes} rotulo={(m) => mesLabel(m)} />}
       />
 
       <div className="space-y-6 px-8 py-6">
-        <div className="grid grid-cols-4 gap-4">
+        {modo === 'lista' && <div className="grid grid-cols-4 gap-4">
           {(Object.keys(STATUS) as StatusRenovacao[]).map((s) => (
             <button
               key={s}
@@ -71,7 +73,7 @@ export default function Renovacoes() {
               <p className="mt-1 text-3xl font-semibold">{contagem(s)}</p>
             </button>
           ))}
-        </div>
+        </div>}
 
         <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/70">
           <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-4 py-3">
@@ -80,12 +82,19 @@ export default function Renovacoes() {
               <option value="todos">Todos os corretores</option>
               {db.corretores.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
             </Select>
-            {status !== 'todos' && (
+            {modo === 'lista' && status !== 'todos' && (
               <button onClick={() => setStatus('todos')} className="text-sm text-marca-600 hover:underline">
                 Limpar filtro “{STATUS[status].label}”
               </button>
             )}
-            <label className="ml-auto flex w-64 items-center gap-2 rounded-lg px-3 py-2 ring-1 ring-slate-200 focus-within:ring-2 focus-within:ring-marca-500">
+            <div className="ml-auto">
+              <Segmentos
+                valor={modo}
+                onChange={setModo}
+                opcoes={[{ valor: 'lista', label: 'Lista' }, { valor: 'kanban', label: 'Kanban' }]}
+              />
+            </div>
+            <label className="flex w-64 items-center gap-2 rounded-lg px-3 py-2 ring-1 ring-slate-200 focus-within:ring-2 focus-within:ring-marca-500">
               <Search className="size-4 text-slate-400" />
               <input
                 value={busca}
@@ -96,7 +105,11 @@ export default function Renovacoes() {
             </label>
           </div>
 
-          {lista.length === 0 ? (
+          {modo === 'kanban' ? (
+            <div className="bg-white p-4">
+              <KanbanRenovacoes itens={doMes} onAbrir={setAberta} />
+            </div>
+          ) : lista.length === 0 ? (
             <div className="p-6"><Vazio>Nenhuma renovação com esses filtros.</Vazio></div>
           ) : (
             <table className="w-full">
@@ -133,7 +146,9 @@ export default function Renovacoes() {
             </table>
           )}
           <div className="border-t border-slate-200 px-4 py-2.5 text-xs text-slate-500">
-            {lista.length} de {doMes.length} renovações · clique numa linha para atualizar o andamento
+            {modo === 'kanban'
+              ? `${doMes.length} renovações · arraste os blocos entre as colunas para mudar o andamento`
+              : `${lista.length} de ${doMes.length} renovações · clique numa linha para atualizar o andamento`}
           </div>
         </div>
       </div>

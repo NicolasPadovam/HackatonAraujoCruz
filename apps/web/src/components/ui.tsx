@@ -1,5 +1,5 @@
-import { Car, HeartPulse, Home, Shield, X, type LucideIcon } from 'lucide-react'
-import { useEffect, type ReactNode } from 'react'
+import { Car, ChevronLeft, ChevronRight, HeartPulse, Home, Shield, X, type LucideIcon } from 'lucide-react'
+import { useEffect, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import type { Ramo, StatusRenovacao } from '../domain/types'
 import type { FaixaVencimento } from '../lib/format'
 
@@ -116,8 +116,8 @@ export function Avatar({ texto, cor = 'bg-marca-100 text-marca-700', tamanho = '
 }
 
 /** Painel lateral à direita (detalhes sem sair da lista). */
-export function Drawer({ aberto, onFechar, titulo, children }: {
-  aberto: boolean; onFechar: () => void; titulo: string; children: ReactNode
+export function Drawer({ aberto, onFechar, titulo, children, largura = 'max-w-md', rodape }: {
+  aberto: boolean; onFechar: () => void; titulo: string; children: ReactNode; largura?: string; rodape?: ReactNode
 }) {
   useEffect(() => {
     if (!aberto) return
@@ -130,7 +130,7 @@ export function Drawer({ aberto, onFechar, titulo, children }: {
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <button aria-label="Fechar" className="absolute inset-0 bg-slate-900/30" onClick={onFechar} />
-      <aside className="relative flex h-full w-full max-w-md flex-col bg-white shadow-2xl">
+      <aside className={`relative flex h-full w-full ${largura} flex-col bg-white shadow-2xl`}>
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <h3 className="truncate text-lg font-semibold">{titulo}</h3>
           <button onClick={onFechar} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100" title="Fechar (Esc)">
@@ -138,6 +138,7 @@ export function Drawer({ aberto, onFechar, titulo, children }: {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        {rodape && <div className="border-t border-slate-200 bg-slate-50 px-6 py-3">{rodape}</div>}
       </aside>
     </div>
   )
@@ -167,6 +168,66 @@ export function Select({ value, onChange, children, className = '' }: {
   )
 }
 
+export const INPUT =
+  'w-full rounded-lg border-0 bg-white px-3 py-2 text-sm ring-1 ring-slate-300 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-marca-500 aria-[invalid=true]:ring-rose-400'
+
+export function Campo({ label, obrigatorio, erro, dica, children, className = '' }: {
+  label: string; obrigatorio?: boolean; erro?: string | null; dica?: ReactNode; children: ReactNode; className?: string
+}) {
+  return (
+    <label className={`block space-y-1 ${className}`}>
+      <span className="text-sm font-medium text-slate-700">
+        {label}{obrigatorio && <span className="text-rose-500"> *</span>}
+      </span>
+      {children}
+      {erro ? <span className="block text-xs text-rose-600">{erro}</span> : dica && <span className="block text-xs text-slate-500">{dica}</span>}
+    </label>
+  )
+}
+
+export function BotaoPrimario({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      {...props}
+      className={`inline-flex items-center justify-center gap-2 rounded-lg bg-marca-700 px-4 py-2 text-sm font-semibold text-white hover:bg-marca-600 disabled:opacity-60 ${props.className ?? ''}`}
+    >
+      {children}
+    </button>
+  )
+}
+
+export function BotaoSecundario({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      {...props}
+      className={`inline-flex items-center justify-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-60 ${props.className ?? ''}`}
+    >
+      {children}
+    </button>
+  )
+}
+
 /** Estilos de tabela compartilhados. */
 export const TH = 'px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500'
 export const TD = 'px-4 py-3 text-sm'
+
+/** Escolha do mês: setas para o anterior/próximo e lista com todos os meses que têm dados. */
+export function SeletorMes({ valor, meses, onChange, rotulo }: {
+  valor: string; meses: string[]; onChange: (m: string) => void; rotulo: (m: string) => string
+}) {
+  const i = meses.indexOf(valor)
+  const botao = 'rounded-lg p-2 text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-40'
+  return (
+    <div className="flex items-center gap-1.5">
+      <button className={botao} disabled={i <= 0} onClick={() => onChange(meses[i - 1])} title="Mês anterior"><ChevronLeft className="size-4" /></button>
+      <select
+        value={valor}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-lg border-0 bg-white px-3 py-2 text-sm font-medium ring-1 ring-slate-200 focus:ring-2 focus:ring-marca-500"
+      >
+        {[...meses].reverse().map((m) => <option key={m} value={m}>{rotulo(m)}</option>)}
+      </select>
+      <button className={botao} disabled={i < 0 || i >= meses.length - 1} onClick={() => onChange(meses[i + 1])} title="Próximo mês"><ChevronRight className="size-4" /></button>
+    </div>
+  )
+}

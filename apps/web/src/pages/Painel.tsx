@@ -1,6 +1,6 @@
 import { ArrowRight } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { Card, PageHeader, RAMO, STATUS, Secao, Segmentos, TD, TH } from '../components/ui'
+import { Card, PageHeader, RAMO, STATUS, Secao, SeletorMes, TD, TH } from '../components/ui'
 import type { Ramo, StatusRenovacao } from '../domain/types'
 import { useIndices, useStore } from '../data/store'
 import { DIAS_ALERTA, faixaVencimento, fmtData, fmtMoeda, hojeIso, mesesRecentes, mesKey, mesLabel } from '../lib/format'
@@ -102,7 +102,7 @@ export default function Painel() {
       <PageHeader
         titulo="Painel"
         subtitulo={`Visão da carteira · ${mesLabel(mes)}`}
-        direita={<Segmentos valor={mes} onChange={setMes} opcoes={meses.map((m) => ({ valor: m, label: mesLabel(m, true) }))} />}
+        direita={<SeletorMes valor={mes} meses={meses} onChange={setMes} rotulo={(m) => mesLabel(m)} />}
       />
 
       <div className="space-y-6 px-8 py-6">
