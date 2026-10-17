@@ -62,11 +62,11 @@ Recomendação: importar **todos os ramos** da planilha, não só residencial. O
 ## Perguntas em aberto
 
 1. **Alinhar com quem configura o Supabase** o esquema da tabela de clientes que está sendo carregada (campos, chave CPF/CNPJ), para que o importador de renovações vincule a ela em vez de criar outra.
-2. Há clientes homônimos conhecidos na carteira? Isso afeta a deduplicação por nome.
-3. As planilhas mensais são arquivos separados ou abas de um mesmo arquivo? Isso muda o upload (um arquivo por vez ou escolher a aba).
 
 ## Respondidas
 
+- Planilhas mensais: são **abas de um mesmo arquivo**. No upload, o usuário escolhe a aba (mês) a importar.
+- Mesmo nome = mesmo cliente. Quando um nome aparece em várias linhas, é o mesmo cliente com seguros de ramos diferentes (ex.: uma empresa com auto e residencial). A deduplicação por nome vincula essas linhas ao mesmo cadastro.
 - Corretores: R = Renata, C = Carlos.
 - Comissão: registrada em %.
 - Planilha de renovações: uma por mês.

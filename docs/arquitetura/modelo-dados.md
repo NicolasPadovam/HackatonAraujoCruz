@@ -115,7 +115,7 @@ No MVP essa tabela pode ficar vazia. Ela existe para a ficha do cliente e para a
 2. Se não tem → procura por `nome_normalizado`.
    - 1 resultado: vincula.
    - 0 resultados: cria o cliente.
-   - Mais de 1 resultado (homônimos): linha vai para `revisao`, sem gravar nada.
+   - Mais de 1 resultado: linha vai para `revisao`, sem gravar nada. É raro: segundo a equipe, o mesmo nome em várias linhas é o mesmo cliente com seguros de ramos diferentes.
 3. A base de clientes está sendo carregada direto no Supabase (stand-by deste lado). A tabela `clientes` acima deve ser alinhada com a que está sendo criada lá, não duplicada. Quando ela estiver pronta com CPF, os clientes criados só pelo nome recebem o CPF (`update`), sem criar outro registro.
 
 ## Modelos de importação
