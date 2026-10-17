@@ -35,9 +35,10 @@ const POR_RAMO: Record<Ramo, string[]> = {
   outro: ['porto', 'tokio'],
 }
 
-const CORRETORES: Corretor[] = [
+export const CORRETORES: Corretor[] = [
   { id: 'renata', nome: 'Renata', sigla: 'R' },
   { id: 'carlos', nome: 'Carlos', sigla: 'C' },
+  { id: 'dani', nome: 'Dani', sigla: 'D' },
 ]
 
 // Nomes inventados. [nome, ramos dos seguros que a pessoa tem]

@@ -49,7 +49,7 @@ erDiagram
 | --- | --- | --- |
 | id | uuid PK | |
 | nome | text | |
-| sigla | text unique | Como aparece na planilha. Carga inicial: R = Renata, C = Carlos |
+| sigla | text unique | Como aparece na planilha. Carga inicial: R = Renata, C = Carlos; D = Dani (migration 000600) |
 
 ### seguros (apólices)
 | Campo | Tipo | Notas |
