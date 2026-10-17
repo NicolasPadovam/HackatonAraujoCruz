@@ -16,3 +16,11 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+# Planilhas reais de clientes: nunca commitar
+data/
+*.xls
+*.xlsx
+*.xlsm
+*.csv
+!tests/fixtures/**

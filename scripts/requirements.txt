@@ -1,0 +1,6 @@
+pandas>=2.2
+xlrd>=2.0.1
+openpyxl>=3.1
+lxml>=5.0
+# só para gerar as amostras .xls (BIFF) em tests/fixtures/
+xlwt>=1.3

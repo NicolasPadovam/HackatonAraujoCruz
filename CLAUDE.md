@@ -7,3 +7,5 @@ Leia sempre o contexto do projeto abaixo antes de propor ou implementar qualquer
 Outros documentos: [README.md](README.md), [CONTRIBUTING.md](CONTRIBUTING.md), [docs/produto/mvp.md](docs/produto/mvp.md).
 
 Regra inegociável: nunca use dados reais de clientes (CPF, endereço, apólices) em exemplos, testes, fixtures ou commits.
+
+Planilhas reais ficam em data/raw/<seguradora>/ (fora do Git). O layout de cada seguradora está em docs/importacao/. Testes e exemplos usam só tests/fixtures/planilhas/ (dados falsos).

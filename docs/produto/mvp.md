@@ -41,23 +41,9 @@ Recomendação: importar **todos os ramos** da planilha, não só residencial. O
 - Campos específicos de residencial (imóvel, coberturas). Entram quando formos desenhar a cotação residencial.
 - Dashboards financeiros: os campos de prêmio e comissão estão vazios na planilha atual.
 
-## Mapeamento da planilha de renovações atual
+## Mapeamento das planilhas
 
-| Coluna | Exemplo | Vai para | Observação |
-| --- | --- | --- | --- |
-| A Seguradoras | Tokio Marine | `seguros.seguradora_id` | Normalizar nomes (ex.: "Porto Seguro" / "Porto") |
-| B Nome do Segurado | — | `clientes.nome` | **Sem CPF**: deduplicação por nome normalizado |
-| C Ramo | Auto, Residencial, Vida | `seguros.ramo` | |
-| D Vigência | 2/4/2026 | `renovacoes.vencimento` | Formato **M/D/AAAA** (EUA); tratar com cuidado |
-| E Corretor | R, C | `renovacoes.corretor_id` | R = Renata, C = Carlos |
-| F Renovada | ✅ / ❌ | `renovacoes.status` | ✅ = renovada, ❌ = não renovada, vazio = pendente |
-| G Cotada | TRUE | `renovacoes.cotada` | |
-| H Prêmio Líquido | (vazio) | `seguros.premio_liquido` | Opcional |
-| I Comissão | (vazio) | `seguros.comissao_pct` | Percentual |
-| J Valor Recebido | R$ - | `renovacoes.valor_recebido` | Opcional |
-| K N. Parcelas | (vazio) | `seguros.parcelas` | Opcional |
-| L Valor Mensal | - | `seguros.valor_parcela` | Opcional |
-| M Seguradora Atual | (vazio) | `renovacoes.seguradora_fechada_id` | Quando preenchida e diferente de A, o cliente trocou de seguradora |
+O mapeamento da planilha de renovações da corretora está em [docs/importacao/consolidada.md](../importacao/consolidada.md). Os relatórios de cada seguradora estão em [docs/importacao/](../importacao/README.md).
 
 ## Perguntas em aberto
 

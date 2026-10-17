@@ -1,1 +1,4 @@
 * text=auto eol=lf
+
+# Amostras de planilha: manter os bytes exatos (CRLF, encoding) do formato que imitam
+tests/fixtures/** binary
