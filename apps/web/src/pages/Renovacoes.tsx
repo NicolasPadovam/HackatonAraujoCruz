@@ -14,11 +14,11 @@ export default function Renovacoes() {
   const { db } = useStore()
   const ix = useIndices()
   const [mes, setMes] = useState(mesKey(hojeIso()))
-  const [ramo, setRamo] = useState<FiltroRamo>('residencial')
+  const [ramo, setRamo] = useState<FiltroRamo>('todos')
   const [status, setStatus] = useState<FiltroStatus>('todos')
   const [corretor, setCorretor] = useState('todos')
   const [busca, setBusca] = useState('')
-  const [modo, setModo] = useState<'lista' | 'kanban'>('lista')
+  const [modo, setModo] = useState<'lista' | 'kanban'>('kanban')
   const [aberta, setAberta] = useState<string | null>(null)
 
   const meses = useMemo(() => mesesRecentes(db.renovacoes.map((r) => r.vencimento)), [db.renovacoes])
@@ -42,10 +42,10 @@ export default function Renovacoes() {
     .sort((a, b) => a.r.vencimento.localeCompare(b.r.vencimento))
 
   const opcoesRamo: Opcao<FiltroRamo>[] = [
+    { valor: 'todos', label: 'Todos os ramos' },
     { valor: 'residencial', label: 'Residencial' },
     { valor: 'auto', label: 'Auto' },
     { valor: 'vida', label: 'Vida' },
-    { valor: 'todos', label: 'Todos os ramos' },
   ]
 
   return (
@@ -91,7 +91,7 @@ export default function Renovacoes() {
               <Segmentos
                 valor={modo}
                 onChange={setModo}
-                opcoes={[{ valor: 'lista', label: 'Lista' }, { valor: 'kanban', label: 'Kanban' }]}
+                opcoes={[{ valor: 'kanban', label: 'Kanban' }, { valor: 'lista', label: 'Lista' }]}
               />
             </div>
             <label className="flex w-64 items-center gap-2 rounded-lg px-3 py-2 ring-1 ring-slate-200 focus-within:ring-2 focus-within:ring-marca-500">
