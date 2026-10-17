@@ -1,10 +1,32 @@
-import { ArrowLeft, ArrowRight, Mail, MessageCircle, Phone } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowLeft, ArrowRight, Mail, MessageCircle, Phone, IdCard } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { RenovacaoSheet } from '../components/RenovacaoSheet'
-import { AvisoPrototipo, Card, RamoBadge, Secao, StatusBadge, Vazio } from '../components/ui'
+import { AvisoPrototipo, Avatar, Card, PageHeader, RamoBadge, Secao, StatusBadge, TD, TH, Vazio } from '../components/ui'
 import { useIndices, useStore } from '../data/store'
-import { fmtData, fmtMoeda, fmtPct } from '../lib/format'
+import { fmtData, fmtMoeda, fmtPct, iniciais } from '../lib/format'
+
+function Tabela({ cabecalho, children }: { cabecalho: string[]; children: ReactNode }) {
+  return (
+    <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/70">
+      <table className="w-full">
+        <thead className="bg-slate-50">
+          <tr>{cabecalho.map((c) => <th key={c} className={TH}>{c}</th>)}</tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">{children}</tbody>
+      </table>
+    </div>
+  )
+}
+
+function Contato({ icone: Icone, valor, vazio }: { icone: typeof Phone; valor?: string; vazio: string }) {
+  return (
+    <div className="flex items-center gap-3 text-sm">
+      <Icone className="size-4 text-slate-400" />
+      {valor ? <span>{valor}</span> : <span className="text-slate-400">{vazio}</span>}
+    </div>
+  )
+}
 
 export default function ClienteFicha() {
   const { id } = useParams()
@@ -15,7 +37,7 @@ export default function ClienteFicha() {
 
   if (!cliente) {
     return (
-      <div className="p-4">
+      <div className="p-8">
         <Vazio>Cliente não encontrado. <Link to="/clientes" className="text-marca-600 underline">Voltar</Link></Vazio>
       </div>
     )
@@ -26,121 +48,120 @@ export default function ClienteFicha() {
   const historico = seguros
     .flatMap((s) => (ix.renovacoesDoSeguro.get(s.id) ?? []).map((r) => ({ r, s })))
     .sort((a, b) => b.r.vencimento.localeCompare(a.r.vencimento))
-  const cotacoes = db.cotacoes.filter((c) => c.clienteId === cliente.id)
+  const cotacoes = db.cotacoes.filter((c) => c.clienteId === cliente.id).sort((a, b) => b.data.localeCompare(a.data))
   const premioTotal = ativos.reduce((t, s) => t + (s.premioLiquido ?? 0), 0)
   const comissaoTotal = ativos.reduce((t, s) => t + ((s.premioLiquido ?? 0) * (s.comissaoPct ?? 0)) / 100, 0)
+  const origem = cliente.origem === 'carteira' ? 'Carteira' : cliente.origem === 'indicacao' ? 'Indicação' : 'Marketing'
 
   return (
     <>
-      <header className="sticky top-0 z-20 bg-marca-700 px-4 pb-5 pt-[max(1rem,env(safe-area-inset-top))] text-white">
-        <Link to="/clientes" className="-ml-1 mb-3 inline-flex items-center gap-1 text-sm text-marca-100">
-          <ArrowLeft className="size-4" /> Clientes
-        </Link>
-        <h1 className="text-xl font-semibold">{cliente.nome}</h1>
-        <p className="text-sm text-marca-100">
-          {cliente.cpfCnpj ?? 'CPF/CNPJ não informado'} · {cliente.origem === 'carteira' ? 'Carteira' : cliente.origem === 'indicacao' ? 'Indicação' : 'Marketing'}
-        </p>
-      </header>
-
-      <div className="space-y-6 p-4">
-        <div className="grid grid-cols-3 gap-2">
-          <a
-            onClick={(e) => { e.preventDefault(); if (cliente.telefone) alert('Protótipo: abriria o WhatsApp.') }}
-            href="#"
-            className={`flex flex-col items-center gap-1 rounded-2xl py-3 text-xs font-medium ${cliente.telefone ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400'}`}
+      <PageHeader
+        titulo={cliente.nome}
+        subtitulo={`${origem} · ${ativos.length} seguro(s) ativo(s)`}
+        voltar={
+          <Link to="/clientes" className="mb-2 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-marca-600">
+            <ArrowLeft className="size-4" /> Clientes
+          </Link>
+        }
+        direita={
+          <button
+            disabled={!cliente.telefone}
+            onClick={() => alert('Protótipo: abriria o WhatsApp Web do cliente.')}
+            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:bg-slate-100 disabled:text-slate-400"
           >
-            <MessageCircle className="size-5" /> WhatsApp
-          </a>
-          <div className={`flex flex-col items-center gap-1 rounded-2xl py-3 text-xs font-medium ${cliente.telefone ? 'bg-white text-slate-700 ring-1 ring-slate-200' : 'bg-slate-100 text-slate-400'}`}>
-            <Phone className="size-5" /> {cliente.telefone ?? 'Sem telefone'}
-          </div>
-          <div className={`flex flex-col items-center gap-1 truncate rounded-2xl px-1 py-3 text-xs font-medium ${cliente.email ? 'bg-white text-slate-700 ring-1 ring-slate-200' : 'bg-slate-100 text-slate-400'}`}>
-            <Mail className="size-5" /> <span className="max-w-full truncate">{cliente.email ?? 'Sem e-mail'}</span>
-          </div>
+            <MessageCircle className="size-4" /> {cliente.telefone ? 'WhatsApp' : 'Sem telefone'}
+          </button>
+        }
+      />
+
+      <div className="grid grid-cols-[320px_1fr] gap-6 px-8 py-6">
+        <div className="space-y-4">
+          <Card className="space-y-4">
+            <div className="flex items-center gap-3">
+              <Avatar texto={iniciais(cliente.nome)} tamanho="size-12" />
+              <p className="font-semibold leading-tight">{cliente.nome}</p>
+            </div>
+            <div className="space-y-2.5 border-t border-slate-100 pt-4">
+              <Contato icone={IdCard} valor={cliente.cpfCnpj} vazio="CPF/CNPJ não informado" />
+              <Contato icone={Phone} valor={cliente.telefone} vazio="Sem telefone" />
+              <Contato icone={Mail} valor={cliente.email} vazio="Sem e-mail" />
+            </div>
+          </Card>
+
+          <Card className="grid grid-cols-2 gap-4">
+            <div><p className="text-xs text-slate-500">Seguros ativos</p><p className="text-2xl font-semibold">{ativos.length}</p></div>
+            <div><p className="text-xs text-slate-500">Renovações</p><p className="text-2xl font-semibold">{historico.length}</p></div>
+            <div><p className="text-xs text-slate-500">Prêmio/ano</p><p className="font-semibold">{premioTotal ? fmtMoeda(premioTotal) : '—'}</p></div>
+            <div><p className="text-xs text-slate-500">Comissão/ano</p><p className="font-semibold">{comissaoTotal ? fmtMoeda(comissaoTotal) : '—'}</p></div>
+          </Card>
+
+          {!cliente.cpfCnpj && (
+            <AvisoPrototipo>
+              A planilha de renovações não traz CPF nem contato. Esses dados vão vir da base de clientes, que está sendo carregada no Supabase.
+            </AvisoPrototipo>
+          )}
         </div>
 
-        {!cliente.cpfCnpj && (
-          <AvisoPrototipo>
-            A planilha de renovações não traz CPF nem contato. Esses dados vão vir da base de clientes, que está sendo carregada no Supabase.
-          </AvisoPrototipo>
-        )}
+        <div className="min-w-0 space-y-6">
+          <Secao titulo="Seguros ativos">
+            {ativos.length === 0 ? <Vazio>Nenhum seguro ativo.</Vazio> : (
+              <Tabela cabecalho={['Ramo', 'Seguradora', 'Vigência', 'Prêmio líquido', 'Comissão', 'Parcelas']}>
+                {ativos.map((s) => (
+                  <tr key={s.id}>
+                    <td className={TD}><RamoBadge ramo={s.ramo} /></td>
+                    <td className={`${TD} font-medium`}>{ix.seguradora.get(s.seguradoraId)?.nome}</td>
+                    <td className={`${TD} whitespace-nowrap tabular-nums`}>{fmtData(s.inicioVigencia)} → {fmtData(s.fimVigencia)}</td>
+                    <td className={`${TD} tabular-nums`}>{fmtMoeda(s.premioLiquido)}</td>
+                    <td className={`${TD} tabular-nums`}>{fmtPct(s.comissaoPct)}</td>
+                    <td className={`${TD} whitespace-nowrap tabular-nums`}>{s.parcelas ? `${s.parcelas}x ${fmtMoeda(s.valorParcela)}` : '—'}</td>
+                  </tr>
+                ))}
+              </Tabela>
+            )}
+          </Secao>
 
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <Card className="!p-3"><p className="text-xl font-semibold">{ativos.length}</p><p className="text-xs text-slate-500">seguros ativos</p></Card>
-          <Card className="!p-3"><p className="text-sm font-semibold">{premioTotal ? fmtMoeda(premioTotal) : '—'}</p><p className="text-xs text-slate-500">prêmio/ano</p></Card>
-          <Card className="!p-3"><p className="text-sm font-semibold">{comissaoTotal ? fmtMoeda(comissaoTotal) : '—'}</p><p className="text-xs text-slate-500">comissão</p></Card>
-        </div>
-
-        <Secao titulo="Seguros">
-          {ativos.length === 0 ? <Vazio>Nenhum seguro ativo.</Vazio> : ativos.map((s) => (
-            <Card key={s.id} className="space-y-3">
-              <div className="flex items-center justify-between">
-                <RamoBadge ramo={s.ramo} />
-                <span className="text-sm font-medium">{ix.seguradora.get(s.seguradoraId)?.nome}</span>
-              </div>
-              <dl className="grid grid-cols-2 gap-y-2 text-sm">
-                <dt className="text-slate-500">Vigência</dt>
-                <dd className="text-right">{fmtData(s.inicioVigencia)} → {fmtData(s.fimVigencia)}</dd>
-                <dt className="text-slate-500">Prêmio líquido</dt>
-                <dd className="text-right">{fmtMoeda(s.premioLiquido)}</dd>
-                <dt className="text-slate-500">Comissão</dt>
-                <dd className="text-right">{fmtPct(s.comissaoPct)}</dd>
-                <dt className="text-slate-500">Parcelas</dt>
-                <dd className="text-right">{s.parcelas ? `${s.parcelas}x ${fmtMoeda(s.valorParcela)}` : '—'}</dd>
-              </dl>
-            </Card>
-          ))}
-        </Secao>
-
-        <Secao titulo="Histórico de renovações">
-          {historico.length === 0 ? <Vazio>Sem renovações registradas.</Vazio> : (
-            <Card className="!p-0">
-              <ol className="divide-y divide-slate-100">
+          <Secao titulo="Histórico de renovações">
+            {historico.length === 0 ? <Vazio>Sem renovações registradas.</Vazio> : (
+              <Tabela cabecalho={['Vencimento', 'Ramo', 'Seguradora', 'Corretor', 'Status']}>
                 {historico.map(({ r, s }) => {
                   const de = ix.seguradora.get(s.seguradoraId)?.nome
                   const para = r.seguradoraFechadaId ? ix.seguradora.get(r.seguradoraFechadaId)?.nome : undefined
                   return (
-                    <li key={r.id}>
-                      <button onClick={() => setAberta(r.id)} className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-slate-50">
-                        <RamoBadge ramo={s.ramo} compacto />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium">{fmtData(r.vencimento)}</p>
-                          <p className="flex items-center gap-1 truncate text-xs text-slate-500">
-                            {de}
-                            {para && para !== de && <><ArrowRight className="size-3" /> {para}</>}
-                            {' · '}{ix.corretor.get(r.corretorId)?.nome}
-                          </p>
-                        </div>
-                        <StatusBadge status={r.status} />
-                      </button>
-                    </li>
+                    <tr key={r.id} onClick={() => setAberta(r.id)} className="cursor-pointer hover:bg-marca-50/50">
+                      <td className={`${TD} tabular-nums font-medium`}>{fmtData(r.vencimento)}</td>
+                      <td className={TD}><RamoBadge ramo={s.ramo} /></td>
+                      <td className={TD}>
+                        <span className="inline-flex items-center gap-1.5">
+                          {de}
+                          {para && para !== de && <><ArrowRight className="size-3.5 text-violet-500" /><span className="font-medium text-violet-700">{para}</span></>}
+                        </span>
+                      </td>
+                      <td className={`${TD} text-slate-600`}>{ix.corretor.get(r.corretorId)?.nome}</td>
+                      <td className={TD}><StatusBadge status={r.status} /></td>
+                    </tr>
                   )
                 })}
-              </ol>
-            </Card>
-          )}
-        </Secao>
+              </Tabela>
+            )}
+          </Secao>
 
-        <Secao titulo="Cotações">
-          {cotacoes.length === 0 ? <Vazio>Nenhuma cotação registrada.</Vazio> : (
-            <Card className="!p-0">
-              <ul className="divide-y divide-slate-100">
+          <Secao titulo="Cotações">
+            {cotacoes.length === 0 ? <Vazio>Nenhuma cotação registrada.</Vazio> : (
+              <Tabela cabecalho={['Data', 'Ramo', 'Seguradora', 'Prêmio', 'Origem', 'Situação']}>
                 {cotacoes.map((c) => (
-                  <li key={c.id} className="flex items-center justify-between px-4 py-3 text-sm">
-                    <div>
-                      <p className="font-medium">{ix.seguradora.get(c.seguradoraId)?.nome}</p>
-                      <p className="text-xs text-slate-500">{fmtData(c.data)} · {c.origem === 'manual' ? 'manual' : c.origem}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium">{fmtMoeda(c.premio)}</p>
-                      <p className={`text-xs ${c.status === 'aceita' ? 'text-emerald-600' : c.status === 'recusada' ? 'text-slate-400' : 'text-sky-600'}`}>{c.status}</p>
-                    </div>
-                  </li>
+                  <tr key={c.id}>
+                    <td className={`${TD} tabular-nums`}>{fmtData(c.data)}</td>
+                    <td className={TD}><RamoBadge ramo={c.ramo} /></td>
+                    <td className={`${TD} font-medium`}>{ix.seguradora.get(c.seguradoraId)?.nome}</td>
+                    <td className={`${TD} tabular-nums`}>{fmtMoeda(c.premio)}</td>
+                    <td className={`${TD} text-slate-600`}>{c.origem}</td>
+                    <td className={`${TD} ${c.status === 'aceita' ? 'font-medium text-emerald-600' : c.status === 'recusada' ? 'text-slate-400' : 'text-sky-600'}`}>{c.status}</td>
+                  </tr>
                 ))}
-              </ul>
-            </Card>
-          )}
-        </Secao>
+              </Tabela>
+            )}
+          </Secao>
+        </div>
       </div>
 
       <RenovacaoSheet id={aberta} onFechar={() => setAberta(null)} />

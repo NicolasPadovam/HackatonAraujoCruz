@@ -19,7 +19,7 @@ export const RAMO: Record<Ramo, { label: string; icone: LucideIcon; classe: stri
 export function StatusBadge({ status }: { status: StatusRenovacao }) {
   const s = STATUS[status]
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${s.classe}`}>
+    <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${s.classe}`}>
       <span className={`size-1.5 rounded-full ${s.ponto}`} />
       {s.label}
     </span>
@@ -30,22 +30,25 @@ export function RamoBadge({ ramo, compacto = false }: { ramo: Ramo; compacto?: b
   const r = RAMO[ramo]
   const Icone = r.icone
   return (
-    <span className={`inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium ${r.classe}`}>
+    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs font-medium ${r.classe}`}>
       <Icone className="size-3.5" />
       {!compacto && r.label}
     </span>
   )
 }
 
-export function PageHeader({ titulo, subtitulo, direita }: { titulo: string; subtitulo?: string; direita?: ReactNode }) {
+export function PageHeader({ titulo, subtitulo, direita, voltar }: {
+  titulo: string; subtitulo?: string; direita?: ReactNode; voltar?: ReactNode
+}) {
   return (
-    <header className="sticky top-0 z-20 bg-marca-700 px-4 pb-4 pt-[max(1rem,env(safe-area-inset-top))] text-white">
-      <div className="flex items-start justify-between gap-3">
+    <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 px-8 py-5 backdrop-blur">
+      {voltar}
+      <div className="flex items-center justify-between gap-6">
         <div className="min-w-0">
-          <h1 className="truncate text-xl font-semibold">{titulo}</h1>
-          {subtitulo && <p className="text-sm text-marca-100">{subtitulo}</p>}
+          <h1 className="truncate text-2xl font-semibold tracking-tight">{titulo}</h1>
+          {subtitulo && <p className="text-sm text-slate-500">{subtitulo}</p>}
         </div>
-        {direita}
+        {direita && <div className="flex shrink-0 items-center gap-2">{direita}</div>}
       </div>
     </header>
   )
@@ -57,24 +60,24 @@ export interface Opcao<T extends string> {
   contagem?: number
 }
 
-export function Chips<T extends string>({
-  opcoes, valor, onChange, escuro = false,
-}: { opcoes: Opcao<T>[]; valor: T; onChange: (v: T) => void; escuro?: boolean }) {
+/** Controle segmentado (filtros). */
+export function Segmentos<T extends string>({
+  opcoes, valor, onChange,
+}: { opcoes: Opcao<T>[]; valor: T; onChange: (v: T) => void }) {
   return (
-    <div className="scroll-x -mx-4 flex gap-2 overflow-x-auto px-4">
+    <div className="inline-flex rounded-lg bg-slate-100 p-0.5">
       {opcoes.map((o) => {
         const ativo = o.valor === valor
-        const base = escuro
-          ? ativo ? 'bg-white text-marca-700' : 'bg-marca-600 text-marca-50'
-          : ativo ? 'bg-marca-700 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-200'
         return (
           <button
             key={o.valor}
             onClick={() => onChange(o.valor)}
-            className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium transition ${base}`}
+            className={`whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition ${
+              ativo ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+            }`}
           >
             {o.label}
-            {o.contagem != null && <span className="ml-1.5 opacity-70">{o.contagem}</span>}
+            {o.contagem != null && <span className="ml-1.5 text-slate-400">{o.contagem}</span>}
           </button>
         )
       })}
@@ -83,13 +86,13 @@ export function Chips<T extends string>({
 }
 
 export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200/70 ${className}`}>{children}</div>
+  return <div className={`rounded-xl bg-white p-5 shadow-sm ring-1 ring-slate-200/70 ${className}`}>{children}</div>
 }
 
 export function Secao({ titulo, children, acao }: { titulo: string; children: ReactNode; acao?: ReactNode }) {
   return (
-    <section className="space-y-2">
-      <div className="flex items-center justify-between px-1">
+    <section className="space-y-3">
+      <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{titulo}</h2>
         {acao}
       </div>
@@ -98,13 +101,14 @@ export function Secao({ titulo, children, acao }: { titulo: string; children: Re
   )
 }
 
-export function Avatar({ texto, cor = 'bg-marca-100 text-marca-700' }: { texto: string; cor?: string }) {
+export function Avatar({ texto, cor = 'bg-marca-100 text-marca-700', tamanho = 'size-9' }: { texto: string; cor?: string; tamanho?: string }) {
   return (
-    <span className={`grid size-10 shrink-0 place-items-center rounded-full text-sm font-semibold ${cor}`}>{texto}</span>
+    <span className={`grid shrink-0 place-items-center rounded-full text-sm font-semibold ${tamanho} ${cor}`}>{texto}</span>
   )
 }
 
-export function Sheet({ aberto, onFechar, titulo, children }: {
+/** Painel lateral à direita (detalhes sem sair da lista). */
+export function Drawer({ aberto, onFechar, titulo, children }: {
   aberto: boolean; onFechar: () => void; titulo: string; children: ReactNode
 }) {
   useEffect(() => {
@@ -116,27 +120,45 @@ export function Sheet({ aberto, onFechar, titulo, children }: {
 
   if (!aberto) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
-      <button aria-label="Fechar" className="absolute inset-0 bg-slate-900/40" onClick={onFechar} />
-      <div className="relative max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-        <div className="sticky top-0 flex items-center justify-between bg-white px-5 pb-2 pt-4">
-          <h3 className="text-lg font-semibold">{titulo}</h3>
-          <button onClick={onFechar} className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100">
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <button aria-label="Fechar" className="absolute inset-0 bg-slate-900/30" onClick={onFechar} />
+      <aside className="relative flex h-full w-full max-w-md flex-col bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <h3 className="truncate text-lg font-semibold">{titulo}</h3>
+          <button onClick={onFechar} className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100" title="Fechar (Esc)">
             <X className="size-5" />
           </button>
         </div>
-        <div className="px-5">{children}</div>
-      </div>
+        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+      </aside>
     </div>
   )
 }
 
 export function Vazio({ children }: { children: ReactNode }) {
-  return <p className="rounded-2xl border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">{children}</p>
+  return <p className="rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">{children}</p>
 }
 
 export function AvisoPrototipo({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900 ring-1 ring-amber-200">{children}</div>
+    <div className="rounded-lg bg-amber-50 px-4 py-2.5 text-sm text-amber-900 ring-1 ring-amber-200">{children}</div>
   )
 }
+
+export function Select({ value, onChange, children, className = '' }: {
+  value: string; onChange: (v: string) => void; children: ReactNode; className?: string
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={`rounded-lg border-0 bg-white px-3 py-2 text-sm ring-1 ring-slate-200 focus:ring-2 focus:ring-marca-500 ${className}`}
+    >
+      {children}
+    </select>
+  )
+}
+
+/** Estilos de tabela compartilhados. */
+export const TH = 'px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500'
+export const TD = 'px-4 py-3 text-sm'
