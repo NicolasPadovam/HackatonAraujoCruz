@@ -1,0 +1,34 @@
+# Configuração do Supabase local (CLI). Referência: https://supabase.com/docs/guides/local-development/cli/config
+project_id = "araujo-cruz-crm"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 15
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/**"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+# CRM interno: cadastro de usuários feito por admin, não aberto ao público.
+enable_signup = false
+
+[auth.email]
+enable_signup = false
+enable_confirmations = true
