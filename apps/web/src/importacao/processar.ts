@@ -1,23 +1,30 @@
 // Transforma as linhas lidas da planilha em clientes, seguros e renovações,
 // sem duplicar: CPF/CNPJ primeiro, depois nome (mesmo nome = mesmo cliente).
 // Nada é gravado aqui: devolve a prévia (por linha) e o plano de gravação.
+// Nenhuma linha com dados some: ou ela entra, ou fica pendente (pedindo o que falta),
+// ou a pessoa a descarta explicitamente na prévia.
 
 import type { Cliente, Db, Ramo, Renovacao, Seguro, StatusRenovacao } from '../domain/types'
 import { normalizarNome, parseIso, toIso } from '../lib/format'
 import { cnpjValido, cpfValido, emailValido, fmtTelefone, somenteDigitos } from '../lib/validacao'
-import type { CampoDestino, Mapeamento } from './campos'
-import {
-  acharCorretor, acharSeguradora, converterData, converterDocumento, converterInteiro, converterNumero,
-  converterPercentual, converterRamo, converterStatus, texto, type FormatoData,
-} from './conversao'
-import type { Aba, Celula } from './leitura'
+import { OBRIGATORIO, type CampoDestino } from './campos'
+import { acharCorretor, acharSeguradora, converterData, converterDocumento, converterRamo, texto } from './conversao'
+import type { Celula } from './leitura'
+import type { AbaReconhecida } from './modelo'
 
-export type Resultado = 'novo_cliente' | 'vinculado' | 'atualiza' | 'pendente' | 'revisao' | 'erro'
+export type Resultado = 'novo_cliente' | 'vinculado' | 'atualiza' | 'pendente' | 'revisao' | 'descartada'
 
 /** O que a pessoa digitou na prévia para uma linha (chave: chaveLinha). */
 export interface Correcao {
   nome?: string
   cpfCnpj?: string
+  numeroApolice?: string
+  vencimento?: string // yyyy-mm-dd
+  seguradoraId?: string
+  ramo?: Ramo
+  telefone?: string
+  email?: string
+  corretorId?: string
 }
 
 export const chaveLinha = (aba: string, linha: number) => `${aba}|${linha}`
@@ -30,19 +37,26 @@ export interface LinhaResultado {
   linha: number // número da linha no Excel (1-based)
   /** Nome como veio na planilha (antes da correção). */
   nomePlanilha?: string
-  /** O que falta a pessoa informar para a linha poder ser gravada. */
-  pendencias?: { nome: boolean; cpf: boolean }
+  /** Informações que faltam (obrigatórias e opcionais), para a pessoa preencher na prévia. */
+  faltando: CampoDestino[]
   segurado?: string
   cpfCnpj?: string
+  numeroApolice?: string
   seguradora?: string
   ramo?: Ramo
   vencimento?: string
+  telefone?: string
+  email?: string
+  corretor?: string
   status?: StatusRenovacao
   resultado: Resultado
   mensagens: string[]
   dadosBrutos: Record<string, Celula>
   renovacaoId?: string
 }
+
+/** Linha que impede a importação: falta informação obrigatória ou precisa de revisão. */
+export const bloqueia = (l: LinhaResultado) => l.resultado === 'pendente' || l.resultado === 'revisao'
 
 export interface Plano {
   clientes: Cliente[]
@@ -52,13 +66,11 @@ export interface Plano {
 
 export interface Entrada {
   db: Db
-  abas: { aba: Aba; linhaCabecalho: number }[]
-  mapeamento: Mapeamento
+  abas: AbaReconhecida[]
   seguradoraFixaId: string | null
-  formatoData: FormatoData
-  ramoPadrao: Ramo
-  corretorPadraoId: string
   correcoes?: Record<string, Correcao>
+  /** Linhas que a pessoa decidiu não importar (chave: chaveLinha). */
+  descartadas?: Set<string>
 }
 
 function documentoValido(d?: string): d is string {
@@ -76,8 +88,16 @@ function somarAnos(iso: string, anos: number) {
   return toIso(new Date(d.getFullYear() + anos, d.getMonth(), d.getDate()))
 }
 
+/** Pode vir mais de um ("(11) 4000-1234 / (11) 90001-2345"): prefere o celular (11 dígitos). */
+function converterTelefone(v?: string): string | undefined {
+  const fones = (v ?? '').split(/[/;|]/).map(somenteDigitos).filter((d) => d.length === 10 || d.length === 11)
+  const d = fones.find((x) => x.length === 11) ?? fones[0]
+  return d ? fmtTelefone(d) : undefined
+}
+
 export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano } {
   const { db } = e
+  const correcoes = e.correcoes ?? {}
 
   // Estado de trabalho: cópias, para que linhas seguintes enxerguem o que as anteriores criaram.
   const clientes = new Map(db.clientes.map((c) => [c.id, { ...c }]))
@@ -104,147 +124,183 @@ export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano 
   const tocadosRen = new Set<string>()
 
   // 1) Junta as linhas de todas as abas e ordena por vencimento (histórico primeiro).
-  interface Bruta { aba: string; linha: number; celulas: Celula[]; cab: string[]; venc: string | null }
+  //    Só a linha totalmente vazia fica de fora; qualquer outra aparece na prévia.
+  interface Bruta { aba: string; linha: number; celulas: Celula[]; cab: string[]; m: AbaReconhecida['mapeamento']; venc: string | null; vencBruto: Celula }
   const brutas: Bruta[] = []
-  for (const { aba, linhaCabecalho } of e.abas) {
+  for (const { aba, linhaCabecalho, mapeamento, formatoData } of e.abas) {
     const cab = (aba.linhas[linhaCabecalho] ?? []).map((v, i) => (v == null || String(v).trim() === '' ? `Coluna ${i + 1}` : String(v).trim()))
-    const col = (campo: CampoDestino) => (e.mapeamento[campo] ? cab.indexOf(e.mapeamento[campo]!) : -1)
-    const iSeg = col('segurado')
-    const iVenc = col('vencimento')
+    const iVenc = mapeamento.vencimento ? cab.indexOf(mapeamento.vencimento) : -1
     aba.linhas.slice(linhaCabecalho + 1).forEach((celulas, i) => {
-      const temAlgo = celulas.some((v) => v != null && String(v).trim() !== '')
-      const segurado = iSeg >= 0 ? texto(celulas[iSeg] ?? null) : undefined
+      if (!celulas.some((v) => v != null && String(v).trim() !== '')) return
+      const linha = linhaCabecalho + 2 + i
       const vencBruto = iVenc >= 0 ? celulas[iVenc] ?? null : null
-      if (!temAlgo || (!segurado && (vencBruto == null || String(vencBruto).trim() === ''))) return // linha vazia ou de total
-      brutas.push({ aba: aba.nome, linha: linhaCabecalho + 2 + i, celulas, cab, venc: converterData(vencBruto, e.formatoData) })
+      const venc = converterData(vencBruto, formatoData) ?? correcoes[chaveLinha(aba.nome, linha)]?.vencimento ?? null
+      brutas.push({ aba: aba.nome, linha, celulas, cab, m: mapeamento, venc, vencBruto })
     })
   }
   brutas.sort((a, b) => (a.venc ?? '9999').localeCompare(b.venc ?? '9999'))
 
+  const celula = (b: Bruta, campo: CampoDestino): Celula => {
+    const nome = b.m[campo]
+    if (!nome) return null
+    const i = b.cab.indexOf(nome)
+    return i >= 0 ? b.celulas[i] ?? null : null
+  }
+  const nomeDaLinha = (b: Bruta) => texto(correcoes[chaveLinha(b.aba, b.linha)]?.nome ?? null) ?? texto(celula(b, 'segurado'))
+
   // CPF digitado numa linha vale para as outras linhas do mesmo nome (digita uma vez por cliente).
-  const correcoes = e.correcoes ?? {}
   const cpfDigitadoPorNome = new Map<string, string>()
   for (const b of brutas) {
     const c = correcoes[chaveLinha(b.aba, b.linha)]
     const doc = c?.cpfCnpj ? somenteDigitos(c.cpfCnpj) : undefined
-    const iSeg = e.mapeamento.segurado ? b.cab.indexOf(e.mapeamento.segurado) : -1
-    const nome = c?.nome?.trim() || (iSeg >= 0 ? texto(b.celulas[iSeg] ?? null) : undefined)
+    const nome = nomeDaLinha(b)
     if (nome && !nomeMascarado(nome) && documentoValido(doc)) cpfDigitadoPorNome.set(normalizarNome(nome), doc)
   }
 
   const linhas: LinhaResultado[] = []
 
   for (const b of brutas) {
-    const valor = (campo: CampoDestino): Celula => {
-      const nome = e.mapeamento[campo]
-      if (!nome) return null
-      const i = b.cab.indexOf(nome)
-      return i >= 0 ? b.celulas[i] ?? null : null
-    }
+    const chave = chaveLinha(b.aba, b.linha)
+    const valor = (campo: CampoDestino) => celula(b, campo)
     const dadosBrutos = Object.fromEntries(b.cab.map((h, i) => [h, b.celulas[i] ?? null]))
-    const res: LinhaResultado = { aba: b.aba, linha: b.linha, resultado: 'erro', mensagens: [], dadosBrutos }
+    const res: LinhaResultado = { aba: b.aba, linha: b.linha, resultado: 'pendente', faltando: [], mensagens: [], dadosBrutos }
     linhas.push(res)
     const msg = (m: string) => res.mensagens.push(m)
+    const falta = (c: CampoDestino) => res.faltando.push(c)
+    const correcao = correcoes[chave] ?? {}
 
-    // --- Conversão ---------------------------------------------------------
-    const correcao = correcoes[chaveLinha(b.aba, b.linha)]
+    // --- Conversão: cada campo vem da planilha ou do que a pessoa digitou na prévia ---------
     const nomePlanilha = texto(valor('segurado'))
     res.nomePlanilha = nomePlanilha
-    res.segurado = nomePlanilha
-    if (!nomePlanilha) { msg('Sem nome do segurado.'); continue }
-    // Nome com "XXX" (mascarado pela seguradora): só entra com o nome corrigido pela pessoa.
-    const nomeDigitado = texto(correcao?.nome ?? null)
-    const precisaNome = nomeMascarado(nomePlanilha) && (!nomeDigitado || nomeMascarado(nomeDigitado))
-    const segurado = nomeMascarado(nomePlanilha) && !precisaNome ? nomeDigitado! : nomePlanilha
+    const nomeDigitado = texto(correcao.nome ?? null)
+    const segurado = nomeDigitado ?? nomePlanilha
     res.segurado = segurado
-    if (segurado !== nomePlanilha) msg('Nome corrigido na importação.')
-    else if (nomeDigitado && precisaNome) msg('O nome corrigido ainda tem "XXX".')
+    const nomeOk = !!segurado && !nomeMascarado(segurado)
+    if (!nomeOk) falta('segurado')
+    if (segurado && nomeMascarado(segurado)) msg(nomeDigitado ? 'O nome corrigido ainda tem "XXX".' : 'Nome mascarado pela seguradora ("XXX"): escreva o nome correto.')
+    else if (nomeDigitado && nomePlanilha && nomeDigitado !== nomePlanilha) msg('Nome corrigido na importação.')
 
     const venc = b.venc
-    if (!venc) { msg(`Vencimento inválido: "${valor('vencimento') ?? ''}".`); continue }
-    res.vencimento = venc
+    res.vencimento = venc ?? undefined
+    if (!venc) {
+      falta('vencimento')
+      if (texto(b.vencBruto)) msg(`Vencimento inválido na planilha: "${texto(b.vencBruto)}".`)
+    }
 
     const base = e.seguradoraFixaId
       ? db.seguradoras.find((s) => s.id === e.seguradoraFixaId)
-      : acharSeguradora(valor('seguradora'), db.seguradoras)
-    if (!base) { msg(`Seguradora não reconhecida: "${valor('seguradora') ?? ''}".`); continue }
+      : acharSeguradora(valor('seguradora'), db.seguradoras) ?? db.seguradoras.find((s) => s.id === correcao.seguradoraId)
+    if (!base) {
+      falta('seguradora')
+      if (texto(valor('seguradora'))) msg(`Seguradora não reconhecida: "${texto(valor('seguradora'))}".`)
+    }
     // Relatório de uma seguradora com produto de outra do grupo (ex.: "Azul Automóvel" no da Porto).
     const produto = normalizarNome(String(valor('ramo') ?? ''))
     const seguradora =
-      (e.seguradoraFixaId &&
+      (e.seguradoraFixaId && base &&
         db.seguradoras.find((s) => s.id !== base.id && [s.nome, ...(s.apelidos ?? [])].some((n) => produto.startsWith(normalizarNome(n) + ' ')))) ||
       base
-    res.seguradora = seguradora.nome
+    res.seguradora = seguradora?.nome
 
-    const ramo = converterRamo(valor('ramo')) ?? e.ramoPadrao
+    const ramo = converterRamo(valor('ramo')) ?? correcao.ramo
     res.ramo = ramo
-
-    const corretorCel = valor('corretor')
-    const corretor = acharCorretor(corretorCel, db.corretores)
-    if (texto(corretorCel) && !corretor) msg(`Corretor "${texto(corretorCel)}" não reconhecido: usei o padrão.`)
-    const corretorId = corretor?.id ?? e.corretorPadraoId
-
-    const temStatus = !!(e.mapeamento.renovada || e.mapeamento.cotada)
-    const status: StatusRenovacao = temStatus ? converterStatus(valor('renovada'), valor('cotada')) : 'pendente'
-    res.status = status
+    if (!ramo) {
+      falta('ramo')
+      if (texto(valor('ramo'))) msg(`Ramo não reconhecido: "${texto(valor('ramo'))}".`)
+    }
 
     let cpf = converterDocumento(valor('cpfCnpj'))
     if (texto(valor('cpfCnpj')) && !documentoValido(cpf)) {
       msg(`CPF/CNPJ inválido na planilha: "${texto(valor('cpfCnpj'))}".`)
       cpf = undefined
     }
-    if (!cpf && correcao?.cpfCnpj) {
+    if (!cpf && correcao.cpfCnpj) {
       const d = somenteDigitos(correcao.cpfCnpj)
       if (documentoValido(d)) { cpf = d; msg('CPF/CNPJ informado na importação.') }
       else msg('O CPF/CNPJ digitado não é válido.')
     }
-    if (!cpf && !precisaNome) cpf = cpfDigitadoPorNome.get(normalizarNome(segurado))
+    if (!cpf && nomeOk) cpf = cpfDigitadoPorNome.get(normalizarNome(segurado!))
     res.cpfCnpj = cpf
 
-    // Sem CPF/CNPJ, a linha só entra se o nome já for de um cliente cadastrado com documento.
-    const mesmoNome = precisaNome ? [] : porNome.get(normalizarNome(segurado)) ?? []
-    const precisaCpf = !cpf && !(mesmoNome.length === 1 && mesmoNome[0].cpfCnpj)
-    if (precisaNome || precisaCpf) {
-      res.resultado = 'pendente'
-      res.pendencias = { nome: precisaNome, cpf: precisaCpf }
-      continue
-    }
+    const telPlanilha = converterTelefone(texto(valor('telefone')))
+    if (texto(valor('telefone')) && !telPlanilha) msg(`Telefone inválido na planilha: "${texto(valor('telefone'))}".`)
+    const telDigitado = correcao.telefone ? converterTelefone(correcao.telefone) : undefined
+    if (correcao.telefone && !telDigitado) msg('O telefone digitado não é válido.')
+    const telefone = telPlanilha ?? telDigitado
 
-    // Pode vir mais de um ("(11) 4000-1234 / (11) 90001-2345"): prefere o celular (11 dígitos).
-    const fones = (texto(valor('telefone')) ?? '').split(/[/;|]/).map(somenteDigitos).filter((d) => d.length === 10 || d.length === 11)
-    const telBruto = fones.find((d) => d.length === 11) ?? fones[0]
-    const telefone = telBruto ? fmtTelefone(telBruto) : undefined
     const emailBruto = texto(valor('email'))
-    const email = emailBruto && emailValido(emailBruto) ? emailBruto : undefined
+    if (emailBruto && !emailValido(emailBruto)) msg(`E-mail inválido na planilha: "${emailBruto}".`)
+    const emailDigitado = texto(correcao.email ?? null)
+    if (emailDigitado && !emailValido(emailDigitado)) msg('O e-mail digitado não é válido.')
+    const email = (emailBruto && emailValido(emailBruto) ? emailBruto : undefined) ?? (emailDigitado && emailValido(emailDigitado) ? emailDigitado : undefined)
 
-    const seguradoraAtual = acharSeguradora(valor('seguradoraAtual'), db.seguradoras)
-    if (texto(valor('seguradoraAtual')) && !seguradoraAtual) msg(`Seguradora atual "${texto(valor('seguradoraAtual'))}" não reconhecida.`)
+    const corretorCel = valor('corretor')
+    const corretor = acharCorretor(corretorCel, db.corretores) ?? db.corretores.find((c) => c.id === correcao.corretorId)
+    if (texto(corretorCel) && !acharCorretor(corretorCel, db.corretores)) msg(`Corretor "${texto(corretorCel)}" não reconhecido.`)
 
-    // --- Cliente -------------------------------------------------------------
+    const numeroApolicePlanilha = texto(valor('numeroApolice')) ?? texto(correcao.numeroApolice ?? null)
+
+    // --- Cliente (só procura; nada muda até a linha estar completa) ---------------------
     let cliente: Cliente | undefined = cpf ? porCpf.get(cpf) : undefined
-    let clienteNovo = false
-    if (!cliente) {
-      const candidatos = porNome.get(normalizarNome(segurado)) ?? []
+    if (!cliente && nomeOk) {
+      const candidatos = porNome.get(normalizarNome(segurado!)) ?? []
       if (candidatos.length > 1) {
         res.resultado = 'revisao'
-        msg(`Há ${candidatos.length} clientes com este nome: confira no cadastro e importe de novo, ou cadastre manualmente.`)
-        continue
-      }
-      if (candidatos.length === 1) {
+        msg(`Há ${candidatos.length} clientes com este nome: confira no cadastro e importe de novo, ou descarte a linha.`)
+      } else if (candidatos.length === 1) {
         cliente = candidatos[0]
         if (cpf && cliente.cpfCnpj && cliente.cpfCnpj !== cpf) {
           res.resultado = 'revisao'
           msg('Mesmo nome de um cliente cadastrado, mas com CPF/CNPJ diferente.')
-          continue
         }
       }
     }
+    // Sem CPF/CNPJ, vale o de um cliente já cadastrado com o mesmo nome.
+    if (!cpf && !cliente?.cpfCnpj) falta('cpfCnpj')
+
+    // Seguro que vence nesta data: mesmo ramo e seguradora; ou um gravado como "outro" numa importação
+    // anterior (ramo não reconhecido, e talvez na seguradora do relatório em vez da do grupo): corrige.
+    const venceJunto = (s: Seguro) => !!venc && diasEntre(s.fimVigencia, venc) <= TOLERANCIA_DIAS
+    const doCliente = cliente ? segurosDoCliente.get(cliente.id) ?? [] : []
+    let seguro =
+      seguradora && ramo
+        ? doCliente.find((s) => s.ramo === ramo && s.seguradoraId === seguradora.id && venceJunto(s)) ??
+          doCliente.find((s) => s.ramo === 'outro' && (s.seguradoraId === seguradora.id || s.seguradoraId === base?.id) && venceJunto(s))
+        : undefined
+    const renExistente = seguro ? renovacaoPorChave.get(chaveRen(seguro.id, seguro.fimVigencia)) : undefined
+
+    const numeroApolice = numeroApolicePlanilha ?? seguro?.numeroApolice
+    if (!numeroApolice) falta('numeroApolice')
+    if (!telefone && !cliente?.telefone) falta('telefone')
+    if (!email && !cliente?.email) falta('email')
+    if (!corretor && !renExistente?.corretorId) falta('corretor')
+    res.numeroApolice = numeroApolice
+    res.telefone = telefone ?? cliente?.telefone
+    res.email = email ?? cliente?.email
+    res.corretor = (corretor ?? db.corretores.find((c) => c.id === renExistente?.corretorId))?.nome
+    res.status = renExistente?.status ?? 'pendente'
+
+    if (e.descartadas?.has(chave)) {
+      res.resultado = 'descartada'
+      res.mensagens = ['Descartada na prévia por quem importou: não foi gravada.']
+      continue
+    }
+    if (res.resultado === 'revisao') continue
+    if (res.faltando.some((c) => OBRIGATORIO.has(c))) continue // pendente
+
+    // A partir daqui todos os obrigatórios existem.
+    const doc = (cpf ?? cliente?.cpfCnpj)!
+    const nome = segurado!
+    const vencimento = venc!
+
+    // --- Cliente ---------------------------------------------------------------------
+    let clienteNovo = false
     if (!cliente) {
       cliente = {
         id: crypto.randomUUID(),
-        nome: segurado,
-        tipo: cpf?.length === 14 || /\b(ltda|me|eireli|s\/?a|epp)\b/i.test(segurado) ? 'juridica' : 'fisica',
-        cpfCnpj: cpf,
+        nome,
+        tipo: doc.length === 14 || /\b(ltda|me|eireli|s\/?a|epp)\b/i.test(nome) ? 'juridica' : 'fisica',
+        cpfCnpj: doc,
         telefone,
         email,
         origem: 'carteira',
@@ -255,95 +311,51 @@ export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano 
       clienteNovo = true
     } else {
       // Completa o cadastro com o que a planilha trouxer (nunca apaga nem sobrescreve).
-      if (cpf && !cliente.cpfCnpj) { cliente.cpfCnpj = cpf; indexarCliente(cliente); tocadosCli.add(cliente.id); msg('CPF/CNPJ adicionado ao cadastro.') }
+      if (!cliente.cpfCnpj) { cliente.cpfCnpj = doc; indexarCliente(cliente); tocadosCli.add(cliente.id); msg('CPF/CNPJ adicionado ao cadastro.') }
       if (telefone && !cliente.telefone) { cliente.telefone = telefone; tocadosCli.add(cliente.id) }
       if (email && !cliente.email) { cliente.email = email; tocadosCli.add(cliente.id) }
     }
 
-    // --- Seguro que vence nesta data ----------------------------------------
-    const doCliente = segurosDoCliente.get(cliente.id) ?? []
-    const venceJunto = (s: Seguro) => diasEntre(s.fimVigencia, venc) <= TOLERANCIA_DIAS
-    // Mesmo ramo e seguradora; ou um seguro gravado como "outro" numa importação anterior (ramo não
-    // reconhecido, e talvez na seguradora do relatório em vez da do grupo, ex.: Porto em vez de Azul): corrige.
-    let seguro =
-      doCliente.find((s) => s.ramo === ramo && s.seguradoraId === seguradora.id && venceJunto(s)) ??
-      doCliente.find((s) => s.ramo === 'outro' && (s.seguradoraId === seguradora.id || s.seguradoraId === base.id) && venceJunto(s))
+    // --- Seguro --------------------------------------------------------------------------
     if (seguro && seguro.ramo !== ramo) {
       msg(`Ramo corrigido: Outro → ${ramo === 'auto' ? 'Auto' : ramo === 'residencial' ? 'Residencial' : ramo === 'vida' ? 'Vida' : 'Outro'}.`)
-      seguro.ramo = ramo
+      seguro.ramo = ramo!
     }
-    if (seguro && seguro.seguradoraId !== seguradora.id) {
-      msg(`Seguradora corrigida: ${base.nome} → ${seguradora.nome}.`)
-      seguro.seguradoraId = seguradora.id
+    if (seguro && seguro.seguradoraId !== seguradora!.id) {
+      msg(`Seguradora corrigida: ${base!.nome} → ${seguradora!.nome}.`)
+      seguro.seguradoraId = seguradora!.id
     }
-    const financeiro = {
-      premioLiquido: converterNumero(valor('premioLiquido')),
-      comissaoPct: converterPercentual(valor('comissaoPct')),
-      parcelas: converterInteiro(valor('parcelas')),
-      valorParcela: converterNumero(valor('valorParcela')),
-    }
-    const numeroApolice = texto(valor('numeroApolice'))
     if (!seguro) {
-      const inicio = converterData(valor('inicioVigencia'), e.formatoData)
       seguro = {
         id: crypto.randomUUID(),
         clienteId: cliente.id,
-        seguradoraId: seguradora.id,
-        ramo,
+        seguradoraId: seguradora!.id,
+        ramo: ramo!,
         numeroApolice,
-        inicioVigencia: inicio && inicio <= venc ? inicio : somarAnos(venc, -1),
-        fimVigencia: venc,
-        ...financeiro,
+        inicioVigencia: somarAnos(vencimento, -1),
+        fimVigencia: vencimento,
         situacao: 'ativo',
       }
       seguros.set(seguro.id, seguro)
       indexarSeguro(seguro)
-    } else {
-      for (const [k, v] of Object.entries(financeiro)) if (v != null) (seguro as unknown as Record<string, unknown>)[k] = v
-      if (numeroApolice && !seguro.numeroApolice) seguro.numeroApolice = numeroApolice
+    } else if (!seguro.numeroApolice) {
+      seguro.numeroApolice = numeroApolice
     }
     tocadosSeg.add(seguro.id)
 
-    // --- Renovação ------------------------------------------------------------
+    // --- Renovação (a importação não muda o andamento que a equipe já marcou) ------------
     let ren = renovacaoPorChave.get(chaveRen(seguro.id, seguro.fimVigencia))
     const jaExistia = !!ren
     if (!ren) {
-      ren = { id: crypto.randomUUID(), seguroId: seguro.id, vencimento: seguro.fimVigencia, corretorId, status, cotada: status !== 'pendente' }
+      ren = { id: crypto.randomUUID(), seguroId: seguro.id, vencimento: seguro.fimVigencia, corretorId: corretor?.id, status: 'pendente', cotada: false }
       renovacoes.set(ren.id, ren)
       renovacaoPorChave.set(chaveRen(seguro.id, ren.vencimento), ren)
-    } else {
-      // Relatório sem andamento (das seguradoras) não desfaz o que a equipe já marcou.
-      if (temStatus) { ren.status = status; ren.cotada = status !== 'pendente' || ren.cotada }
-      if (corretor) ren.corretorId = corretor.id
+    } else if (corretor) {
+      ren.corretorId = corretor.id
     }
-    const recebido = converterNumero(valor('valorRecebido'))
-    if (recebido != null) ren.valorRecebido = recebido
     tocadosRen.add(ren.id)
     res.renovacaoId = ren.id
-
-    // --- Desfecho: renovada gera a apólice nova; não renovada encerra a atual --
-    if (ren.status === 'renovada') {
-      const fechada = seguradoraAtual ?? db.seguradoras.find((s) => s.id === ren.seguradoraFechadaId) ?? seguradora
-      ren.seguradoraFechadaId = fechada.id
-      if (fechada.id !== seguradora.id) msg(`Trocou de seguradora: ${seguradora.nome} → ${fechada.nome}.`)
-      const fimNovo = somarAnos(venc, 1)
-      let novo = ren.seguroNovoId ? seguros.get(ren.seguroNovoId) : undefined
-      novo ??= (segurosDoCliente.get(cliente.id) ?? []).find(
-        (s) => s.id !== seguro.id && s.ramo === ramo && s.seguradoraId === fechada.id && diasEntre(s.fimVigencia, fimNovo) <= TOLERANCIA_DIAS,
-      )
-      if (!novo) {
-        novo = { id: crypto.randomUUID(), clienteId: cliente.id, seguradoraId: fechada.id, ramo, inicioVigencia: venc, fimVigencia: fimNovo, situacao: 'ativo' }
-        seguros.set(novo.id, novo)
-        indexarSeguro(novo)
-        tocadosSeg.add(novo.id)
-      }
-      ren.seguroNovoId = novo.id
-      seguro.situacao = 'renovado'
-    } else if (ren.status === 'nao_renovada') {
-      seguro.situacao = 'nao_renovado'
-    } else if (seguro.situacao !== 'ativo' && !ren.seguroNovoId) {
-      seguro.situacao = 'ativo'
-    }
+    res.status = ren.status
 
     res.resultado = clienteNovo ? 'novo_cliente' : jaExistia ? 'atualiza' : 'vinculado'
   }

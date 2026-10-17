@@ -5,7 +5,7 @@ import { Card, RAMO, STATUS, Secao, TD, TH } from '../../components/ui'
 import type { Ramo, StatusRenovacao } from '../../domain/types'
 import { useIndices, useStore } from '../../data/store'
 import { DIAS_ALERTA, faixaVencimento, fmtData, fmtMoeda, mesKey, mesLabel } from '../../lib/format'
-import { type Periodo, mesesDoAno, taxaPorMes } from '../../lib/metricas'
+import { SEM_CORRETOR, type Periodo, mesesDoAno, taxaPorMes } from '../../lib/metricas'
 
 const ORDEM: StatusRenovacao[] = ['renovada', 'nao_renovada', 'cotando', 'pendente']
 type Grupo = Record<StatusRenovacao, number>
@@ -93,7 +93,7 @@ export default function VisaoGeral({ periodo }: { periodo: Periodo }) {
       semFinanceiro: conta(({ s }) => s.premioLiquido == null),
       porSeguradora: agrupar(({ s }) => s.seguradoraId),
       porRamo: agrupar(({ s }) => s.ramo),
-      porCorretor: agrupar(({ r }) => r.corretorId),
+      porCorretor: agrupar(({ r }) => r.corretorId ?? SEM_CORRETOR),
     }
   }, [db.renovacoes, ix, doPeriodo])
 
@@ -149,7 +149,7 @@ export default function VisaoGeral({ periodo }: { periodo: Periodo }) {
       <div className="grid grid-cols-3 items-start gap-6">
         <Distribuicao titulo="Por ramo" linhas={dados.porRamo} nome={(k) => RAMO[k as Ramo].label} />
         <Distribuicao titulo="Por seguradora" linhas={dados.porSeguradora} nome={(k) => ix.seguradora.get(k)?.nome ?? k} />
-        <Distribuicao titulo="Por corretor" linhas={dados.porCorretor} nome={(k) => ix.corretor.get(k)?.nome ?? k} />
+        <Distribuicao titulo="Por corretor" linhas={dados.porCorretor} nome={(k) => ix.corretor.get(k)?.nome ?? (k === SEM_CORRETOR ? 'Sem corretor' : k)} />
       </div>
 
       {dados.trocas.length > 0 && (
