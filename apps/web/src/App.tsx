@@ -1,16 +1,18 @@
-import { BarChart3, CalendarClock, Loader2, LogOut, Map, Upload, Users, X } from 'lucide-react'
+import { BarChart3, CalendarClock, House, Loader2, LogOut, Map, Upload, Users, X } from 'lucide-react'
 import { HashRouter, NavLink, Outlet, Route, Routes } from 'react-router-dom'
 import AuthGate, { useSessao } from './auth/AuthGate'
 import { DbProvider, useStore } from './data/store'
 import ClienteFicha from './pages/ClienteFicha'
 import Clientes from './pages/Clientes'
 import Importar from './pages/Importar'
+import Inicio from './pages/Inicio'
 import Painel from './pages/Painel'
 import Renovacoes from './pages/Renovacoes'
 import Roadmap from './pages/Roadmap'
 
 const MENU = [
-  { to: '/', label: 'Renovações', icone: CalendarClock },
+  { to: '/', label: 'Início', icone: House },
+  { to: '/renovacoes', label: 'Renovações', icone: CalendarClock },
   { to: '/clientes', label: 'Clientes', icone: Users },
   { to: '/importar', label: 'Importar planilha', icone: Upload },
   { to: '/painel', label: 'Painel', icone: BarChart3 },
@@ -87,7 +89,8 @@ export default function App() {
         <HashRouter>
           <Routes>
             <Route element={<Layout />}>
-              <Route index element={<Renovacoes />} />
+              <Route index element={<Inicio />} />
+              <Route path="renovacoes" element={<Renovacoes />} />
               <Route path="clientes" element={<Clientes />} />
               <Route path="clientes/:id" element={<ClienteFicha />} />
               <Route path="importar" element={<Importar />} />

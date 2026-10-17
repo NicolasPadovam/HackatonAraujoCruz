@@ -27,11 +27,12 @@ Recomendação: importar **todos os ramos** da planilha, não só residencial. O
 1. **Importar planilha de renovações do mês** (formato atual, ver mapeamento abaixo), com prévia antes de gravar e relatório de linhas com erro. Existe uma planilha por mês: importa-se um mês por vez, e reimportar o mesmo mês atualiza os registros em vez de duplicar.
 2. **Vincular renovações aos clientes já existentes** no Supabase, por CPF/CNPJ ou, se não houver, pelo nome. *Em stand-by: a base de clientes ainda está sendo carregada. Até lá, o importador cria o cliente só pelo nome.*
 3. **Deduplicação de clientes**: possíveis duplicatas vão para uma fila de revisão, nunca são mescladas sozinhas.
-4. **Renovações do mês** (tela inicial): tabela por vencimento, com filtro por ramo (padrão: residencial), corretor e status.
-5. **Atualizar status da renovação** com 1 clique: pendente → cotando → renovada / não renovada, e com qual seguradora fechou.
-6. **Ficha do cliente**: todos os seguros, histórico de renovações e seguradoras, contato.
-7. **Busca** de cliente por nome ou CPF.
-8. **Login** da equipe (Supabase Auth). Sem acesso público.
+4. **Tela inicial**: renovações em aberto vencendo em até 10 dias ou vencidas, com alerta amarelo (2 a 5 dias) e vermelho (até 1 dia ou vencida). Ver [features/001](features/001-tela-inicial-vencimentos.md).
+5. **Renovações do mês**: tabela por vencimento, com filtro por ramo (padrão: residencial), corretor e status.
+6. **Atualizar status da renovação** com 1 clique: pendente → cotando → renovada / não renovada, e com qual seguradora fechou.
+7. **Ficha do cliente**: todos os seguros, histórico de renovações e seguradoras, contato.
+8. **Busca** de cliente por nome ou CPF.
+9. **Login** da equipe (Supabase Auth). Sem acesso público.
 
 ## Fora do escopo do MVP
 

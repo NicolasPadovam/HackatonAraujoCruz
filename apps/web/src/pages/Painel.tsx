@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { Card, PageHeader, RAMO, STATUS, Secao, Segmentos, TD, TH } from '../components/ui'
 import type { Ramo, StatusRenovacao } from '../domain/types'
 import { useIndices, useStore } from '../data/store'
-import { diasAte, fmtData, fmtMoeda, hojeIso, mesesRecentes, mesKey, mesLabel } from '../lib/format'
+import { DIAS_ALERTA, faixaVencimento, fmtData, fmtMoeda, hojeIso, mesesRecentes, mesKey, mesLabel } from '../lib/format'
 
 const ORDEM: StatusRenovacao[] = ['renovada', 'nao_renovada', 'cotando', 'pendente']
 type Grupo = Record<StatusRenovacao, number>
@@ -80,7 +80,8 @@ export default function Painel() {
     return {
       total: doMes.length,
       taxa: renovadas + naoRenovadas ? Math.round((renovadas / (renovadas + naoRenovadas)) * 100) : null,
-      urgentes: conta(({ r }) => (r.status === 'pendente' || r.status === 'cotando') && diasAte(r.vencimento) <= 7),
+      vencendo: conta(({ r }) => (r.status === 'pendente' || r.status === 'cotando') && faixaVencimento(r.vencimento) != null),
+      urgentes: conta(({ r }) => (r.status === 'pendente' || r.status === 'cotando') && faixaVencimento(r.vencimento) === 'urgente'),
       emAberto: conta(({ r }) => r.status === 'pendente' || r.status === 'cotando'),
       trocas: doMes.filter(({ r, s }) => r.seguradoraFechadaId && r.seguradoraFechadaId !== s.seguradoraId),
       comissao: doMes
@@ -109,7 +110,7 @@ export default function Painel() {
           <Kpi valor={dados.total} label="Renovações no mês" />
           <Kpi valor={dados.taxa != null ? `${dados.taxa}%` : '—'} label="Taxa de renovação (fechadas)" />
           <Kpi valor={dados.emAberto} label="Em aberto (pendente ou cotando)" />
-          <Kpi valor={dados.urgentes} label="Em aberto vencendo em até 7 dias" destaque={dados.urgentes > 0} />
+          <Kpi valor={dados.vencendo} label={`Em aberto vencendo em até ${DIAS_ALERTA} dias ou vencidas`} destaque={dados.urgentes > 0} />
         </div>
 
         <div className="grid grid-cols-2 gap-4">

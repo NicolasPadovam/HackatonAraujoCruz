@@ -271,7 +271,7 @@ export default function Importar() {
             </div>
             <div className="flex justify-center gap-2">
               <button onClick={reiniciar} className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium hover:bg-slate-200">Importar outra aba</button>
-              <Link to="/" className="rounded-lg bg-marca-700 px-4 py-2 text-sm font-semibold text-white hover:bg-marca-600">Ver renovações</Link>
+              <Link to="/renovacoes" className="rounded-lg bg-marca-700 px-4 py-2 text-sm font-semibold text-white hover:bg-marca-600">Ver renovações</Link>
             </div>
           </Card>
         )}

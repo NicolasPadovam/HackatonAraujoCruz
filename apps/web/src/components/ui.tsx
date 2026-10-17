@@ -1,12 +1,20 @@
 import { Car, HeartPulse, Home, Shield, X, type LucideIcon } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
 import type { Ramo, StatusRenovacao } from '../domain/types'
+import type { FaixaVencimento } from '../lib/format'
 
 export const STATUS: Record<StatusRenovacao, { label: string; classe: string; ponto: string }> = {
   pendente: { label: 'Pendente', classe: 'bg-amber-50 text-amber-800 ring-amber-200', ponto: 'bg-amber-500' },
   cotando: { label: 'Cotando', classe: 'bg-sky-50 text-sky-800 ring-sky-200', ponto: 'bg-sky-500' },
   renovada: { label: 'Renovada', classe: 'bg-emerald-50 text-emerald-800 ring-emerald-200', ponto: 'bg-emerald-500' },
   nao_renovada: { label: 'Não renovada', classe: 'bg-rose-50 text-rose-800 ring-rose-200', ponto: 'bg-rose-500' },
+}
+
+/** Cores das faixas de alerta de vencimento (vermelho, amarelo, neutro). */
+export const FAIXA: Record<FaixaVencimento, { label: string; descricao: string; linha: string; texto: string; ponto: string }> = {
+  urgente: { label: 'Urgente', descricao: 'vencidas ou vencendo em até 1 dia', linha: 'bg-rose-50/70 hover:bg-rose-100/70', texto: 'font-semibold text-rose-700', ponto: 'bg-rose-500' },
+  atencao: { label: 'Preste atenção', descricao: 'vencendo em 2 a 5 dias', linha: 'bg-amber-50/70 hover:bg-amber-100/70', texto: 'font-medium text-amber-700', ponto: 'bg-amber-400' },
+  proxima: { label: 'Próximos dias', descricao: 'vencendo em 6 a 10 dias', linha: 'hover:bg-marca-50/50', texto: 'text-slate-600', ponto: 'bg-slate-300' },
 }
 
 export const RAMO: Record<Ramo, { label: string; icone: LucideIcon; classe: string }> = {
