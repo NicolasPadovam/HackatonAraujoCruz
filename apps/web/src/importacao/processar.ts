@@ -124,10 +124,16 @@ export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano 
     if (!venc) { msg(`Vencimento inválido: "${valor('vencimento') ?? ''}".`); continue }
     res.vencimento = venc
 
-    const seguradora = e.seguradoraFixaId
+    const base = e.seguradoraFixaId
       ? db.seguradoras.find((s) => s.id === e.seguradoraFixaId)
       : acharSeguradora(valor('seguradora'), db.seguradoras)
-    if (!seguradora) { msg(`Seguradora não reconhecida: "${valor('seguradora') ?? ''}".`); continue }
+    if (!base) { msg(`Seguradora não reconhecida: "${valor('seguradora') ?? ''}".`); continue }
+    // Relatório de uma seguradora com produto de outra do grupo (ex.: "Azul Automóvel" no da Porto).
+    const produto = normalizarNome(String(valor('ramo') ?? ''))
+    const seguradora =
+      (e.seguradoraFixaId &&
+        db.seguradoras.find((s) => s.id !== base.id && [s.nome, ...(s.apelidos ?? [])].some((n) => produto.startsWith(normalizarNome(n) + ' ')))) ||
+      base
     res.seguradora = seguradora.nome
 
     const ramo = converterRamo(valor('ramo')) ?? e.ramoPadrao
@@ -149,8 +155,10 @@ export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano 
     }
     res.cpfCnpj = cpf
 
-    const telBruto = somenteDigitos(texto(valor('telefone')) ?? '')
-    const telefone = telBruto.length === 10 || telBruto.length === 11 ? fmtTelefone(telBruto) : undefined
+    // Pode vir mais de um ("(11) 4000-1234 / (11) 90001-2345"): prefere o celular (11 dígitos).
+    const fones = (texto(valor('telefone')) ?? '').split(/[/;|]/).map(somenteDigitos).filter((d) => d.length === 10 || d.length === 11)
+    const telBruto = fones.find((d) => d.length === 11) ?? fones[0]
+    const telefone = telBruto ? fmtTelefone(telBruto) : undefined
     const emailBruto = texto(valor('email'))
     const email = emailBruto && emailValido(emailBruto) ? emailBruto : undefined
 
@@ -199,7 +207,20 @@ export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano 
 
     // --- Seguro que vence nesta data ----------------------------------------
     const doCliente = segurosDoCliente.get(cliente.id) ?? []
-    let seguro = doCliente.find((s) => s.ramo === ramo && s.seguradoraId === seguradora.id && diasEntre(s.fimVigencia, venc) <= TOLERANCIA_DIAS)
+    const venceJunto = (s: Seguro) => diasEntre(s.fimVigencia, venc) <= TOLERANCIA_DIAS
+    // Mesmo ramo e seguradora; ou um seguro gravado como "outro" numa importação anterior (ramo não
+    // reconhecido, e talvez na seguradora do relatório em vez da do grupo, ex.: Porto em vez de Azul): corrige.
+    let seguro =
+      doCliente.find((s) => s.ramo === ramo && s.seguradoraId === seguradora.id && venceJunto(s)) ??
+      doCliente.find((s) => s.ramo === 'outro' && (s.seguradoraId === seguradora.id || s.seguradoraId === base.id) && venceJunto(s))
+    if (seguro && seguro.ramo !== ramo) {
+      msg(`Ramo corrigido: Outro → ${ramo === 'auto' ? 'Auto' : ramo === 'residencial' ? 'Residencial' : ramo === 'vida' ? 'Vida' : 'Outro'}.`)
+      seguro.ramo = ramo
+    }
+    if (seguro && seguro.seguradoraId !== seguradora.id) {
+      msg(`Seguradora corrigida: ${base.nome} → ${seguradora.nome}.`)
+      seguro.seguradoraId = seguradora.id
+    }
     const financeiro = {
       premioLiquido: converterNumero(valor('premioLiquido')),
       comissaoPct: converterPercentual(valor('comissaoPct')),

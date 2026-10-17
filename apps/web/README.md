@@ -36,6 +36,7 @@ Dois usos, na mesma tela (`#/importar`):
 
 Como funciona:
 - O arquivo é lido **no navegador** ([src/importacao/leitura.ts](src/importacao/leitura.ts), SheetJS 0.20.3 do CDN oficial). Nada é enviado até a confirmação.
+- Os relatórios de Porto, Tokio, Allianz, Mapfre e Suhai têm as colunas reconhecidas sozinhas (layouts em [docs/importacao/](../../docs/importacao/README.md)). Arquivos ".xls" que são HTML ou texto com TAB também são lidos.
 - O cabeçalho é detectado (pode estar depois de linhas de título) e as colunas são sugeridas pelos nomes ([src/importacao/campos.ts](src/importacao/campos.ts)).
 - Conversões ([src/importacao/conversao.ts](src/importacao/conversao.ts)): datas do Excel, dd/mm ou mm/dd (detectado); ✅/TRUE = renovada, ❌ = não renovada, caixa desmarcada = ainda não decidido; "R$ -" e zero = vazio; comissão 0,15 = 15%; "Porto" = Porto Seguro.
 - Deduplicação ([src/importacao/processar.ts](src/importacao/processar.ts)): cliente pelo **CPF/CNPJ**; sem ele, pelo **nome** (mesmo nome = mesmo cliente). CPF que vier no relatório **completa** o cadastro existente. Nome repetido com CPF diferente vai para **Revisar** (não grava).
