@@ -31,7 +31,7 @@ function ehBinario(b: Uint8Array): boolean {
  */
 export function decodificarTexto(b: Uint8Array): string {
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(b).replace(/^﻿/, '')
+    return new TextDecoder('utf-8', { fatal: true }).decode(b).replace(/^\uFEFF/, '')
   } catch {
     return new TextDecoder('windows-1252').decode(b)
   }

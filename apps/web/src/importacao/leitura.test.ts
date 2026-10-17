@@ -7,7 +7,7 @@ describe('CSV sem BOM', () => {
   })
 
   it('UTF-8 com BOM tira o BOM', () => {
-    expect(decodificarTexto(new TextEncoder().encode('﻿Apólice'))).toBe('Apólice')
+    expect(decodificarTexto(new TextEncoder().encode('\uFEFFApólice'))).toBe('Apólice')
   })
 
   it('Windows-1252 (Excel em português) é reconhecido', () => {
