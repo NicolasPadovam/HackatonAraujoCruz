@@ -1,7 +1,9 @@
-import { Search } from 'lucide-react'
+import { Plus, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Avatar, PageHeader, RamoBadge, Segmentos, TD, TH, Vazio } from '../components/ui'
+import { ClienteForm } from '../components/ClienteForm'
+import { Avatar, BotaoPrimario, PageHeader, RamoBadge, Segmentos, TD, TH, Vazio } from '../components/ui'
+import { fmtCpfCnpj } from '../lib/validacao'
 import type { Ramo } from '../domain/types'
 import { useIndices, useStore } from '../data/store'
 import { fmtData, iniciais, normalizarNome } from '../lib/format'
@@ -16,6 +18,7 @@ export default function Clientes() {
   const navegar = useNavigate()
   const [busca, setBusca] = useState('')
   const [ramo, setRamo] = useState<FiltroRamo>('todos')
+  const [novoAberto, setNovoAberto] = useState(false)
 
   const linhas = useMemo(() => {
     const termo = normalizarNome(busca)
@@ -26,7 +29,7 @@ export default function Clientes() {
         const seguradoras = [...new Set(ativos.map((s) => ix.seguradora.get(s.seguradoraId)?.nome))]
         return { c, ativos, proximo, seguradoras }
       })
-      .filter(({ c }) => !termo || normalizarNome(c.nome).includes(termo) || c.cpfCnpj?.includes(termo))
+      .filter(({ c }) => !termo || normalizarNome(c.nome).includes(termo) || (!!termo.replace(/\D/g, '') && c.cpfCnpj?.includes(termo.replace(/\D/g, ''))))
       .filter(({ ativos }) => ramo === 'todos' || ativos.some((s) => s.ramo === ramo))
       .sort((a, b) => a.c.nome.localeCompare(b.c.nome, 'pt-BR'))
   }, [db.clientes, ix, busca, ramo])
@@ -35,7 +38,16 @@ export default function Clientes() {
 
   return (
     <>
-      <PageHeader titulo="Clientes" subtitulo={`${db.clientes.length} clientes únicos · ${totalSeguros} seguros ativos`} />
+      <PageHeader
+        titulo="Clientes"
+        subtitulo={`${db.clientes.length} clientes únicos · ${totalSeguros} seguros ativos`}
+        direita={<BotaoPrimario onClick={() => setNovoAberto(true)}><Plus className="size-4" /> Novo cliente</BotaoPrimario>}
+      />
+      <ClienteForm
+        aberto={novoAberto}
+        onFechar={() => setNovoAberto(false)}
+        onSalvo={(id, continuar) => { if (!continuar) navegar(`/clientes/${id}`) }}
+      />
 
       <div className="px-8 py-6">
         <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/70">
@@ -85,7 +97,7 @@ export default function Clientes() {
                         <span className="font-medium">{c.nome}</span>
                       </div>
                     </td>
-                    <td className={`${TD} text-slate-400`}>{c.cpfCnpj ?? '—'}</td>
+                    <td className={`${TD} whitespace-nowrap tabular-nums ${c.cpfCnpj ? 'text-slate-600' : 'text-slate-400'}`}>{c.cpfCnpj ? fmtCpfCnpj(c.cpfCnpj) : '—'}</td>
                     <td className={TD}>
                       <div className="flex flex-wrap gap-1">
                         {ativos.length ? ativos.map((s) => <RamoBadge key={s.id} ramo={s.ramo} />) : <span className="text-slate-400">nenhum</span>}
@@ -93,7 +105,7 @@ export default function Clientes() {
                     </td>
                     <td className={`${TD} text-slate-600`}>{seguradoras.join(', ') || '—'}</td>
                     <td className={`${TD} tabular-nums text-slate-600`}>{proximo ? fmtData(proximo) : '—'}</td>
-                    <td className={`${TD} text-slate-600`}>{c.telefone ?? <span className="text-slate-400">—</span>}</td>
+                    <td className={`${TD} whitespace-nowrap text-slate-600`}>{c.telefone ?? <span className="text-slate-400">—</span>}</td>
                     <td className={`${TD} text-slate-600`}>{ORIGEM[c.origem]}</td>
                   </tr>
                 ))}
@@ -101,7 +113,7 @@ export default function Clientes() {
             </table>
           )}
           <div className="border-t border-slate-200 px-4 py-2.5 text-xs text-slate-500">
-            {linhas.length} clientes · CPF e telefone virão da base de clientes (em carga no Supabase)
+            {linhas.length} clientes · clique numa linha para abrir a ficha e completar CPF, contato e seguros
           </div>
         </div>
       </div>

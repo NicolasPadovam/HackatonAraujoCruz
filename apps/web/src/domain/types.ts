@@ -7,10 +7,14 @@ export type StatusRenovacao = 'pendente' | 'cotando' | 'renovada' | 'nao_renovad
 
 export type OrigemCliente = 'carteira' | 'indicacao' | 'marketing'
 
+export type TipoPessoa = 'fisica' | 'juridica'
+
 export interface Cliente {
   id: string
+  tipo?: TipoPessoa
   nome: string
-  cpfCnpj?: string
+  cpfCnpj?: string // só dígitos
+  observacoes?: string
   telefone?: string
   email?: string
   origem: OrigemCliente
@@ -32,6 +36,7 @@ export interface Seguro {
   clienteId: string
   seguradoraId: string
   ramo: Ramo
+  numeroApolice?: string
   inicioVigencia: string // ISO yyyy-mm-dd
   fimVigencia: string
   premioLiquido?: number

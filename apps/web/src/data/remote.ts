@@ -41,10 +41,12 @@ export async function carregarDb(client: SupabaseClient): Promise<Db> {
   return {
     clientes: clientes.map((r): Cliente => ({
       id: r.id as string,
+      tipo: r.tipo as Cliente['tipo'],
       nome: r.nome as string,
       cpfCnpj: texto(r.cpf_cnpj),
       telefone: texto(r.telefone),
       email: texto(r.email),
+      observacoes: texto(r.observacoes),
       origem: r.origem as Cliente['origem'],
     })),
     seguradoras: seguradoras.map((r): Seguradora => ({ id: r.id as string, nome: r.nome as string })),
@@ -54,6 +56,7 @@ export async function carregarDb(client: SupabaseClient): Promise<Db> {
       clienteId: r.cliente_id as string,
       seguradoraId: r.seguradora_id as string,
       ramo: r.ramo === 'outros' ? 'outro' : (r.ramo as Seguro['ramo']),
+      numeroApolice: texto(r.numero_apolice),
       inicioVigencia: texto(r.inicio_vigencia) ?? '',
       fimVigencia: texto(r.fim_vigencia) ?? '',
       premioLiquido: numero(r.premio_liquido),
@@ -118,6 +121,78 @@ export async function salvarRenovacao(client: SupabaseClient, id: string, patch:
   )
   const { error } = await client.from('renovacoes').update(dados).eq('id', id)
   if (error) throw new Error(error.message)
+}
+
+// ---------------------------------------------------------------------------
+// Cadastro manual
+// ---------------------------------------------------------------------------
+
+function linhaCliente(c: Cliente) {
+  return {
+    tipo: c.tipo ?? 'fisica',
+    nome: c.nome,
+    cpf_cnpj: c.cpfCnpj ?? null,
+    telefone: c.telefone ?? null,
+    email: c.email ?? null,
+    observacoes: c.observacoes ?? null,
+    origem: c.origem,
+  }
+}
+
+function linhaSeguro(s: Seguro) {
+  return {
+    cliente_id: s.clienteId,
+    seguradora_id: s.seguradoraId,
+    ramo: s.ramo,
+    numero_apolice: s.numeroApolice ?? null,
+    inicio_vigencia: s.inicioVigencia,
+    fim_vigencia: s.fimVigencia,
+    premio_liquido: s.premioLiquido ?? null,
+    comissao_pct: s.comissaoPct ?? null,
+    parcelas: s.parcelas ?? null,
+    valor_parcela: s.valorParcela ?? null,
+    situacao: s.situacao,
+  }
+}
+
+/** Traduz erros do Postgres que a pessoa consegue resolver. */
+function mensagem(error: { message: string; code?: string }): string {
+  if (error.code === '23505' && error.message.includes('cpf_cnpj')) return 'Já existe um cliente com este CPF/CNPJ.'
+  if (error.code === '23505' && error.message.includes('numero')) return 'Já existe um seguro com este número de apólice nesta seguradora.'
+  if (error.code === 'PGRST202') return 'A função cadastrar_seguro não existe no banco: aplique a migration 20261017000300_cadastro_manual.'
+  if (error.code === '42501') return 'Seu usuário não tem permissão para esta gravação.'
+  return error.message
+}
+
+export async function inserirCliente(client: SupabaseClient, c: Cliente) {
+  const { error } = await client.from('clientes').insert({ id: c.id, ...linhaCliente(c) })
+  if (error) throw new Error(mensagem(error))
+}
+
+export async function atualizarCliente(client: SupabaseClient, c: Cliente) {
+  const { error } = await client.from('clientes').update(linhaCliente(c)).eq('id', c.id)
+  if (error) throw new Error(mensagem(error))
+}
+
+/** Seguro + renovação no fim da vigência, numa transação (função cadastrar_seguro). */
+export async function cadastrarSeguro(client: SupabaseClient, s: Seguro, r: Renovacao) {
+  const { error } = await client.rpc('cadastrar_seguro', {
+    p_seguro: { id: s.id, ...linhaSeguro(s) },
+    p_renovacao: { id: r.id, vencimento: r.vencimento, corretor_id: r.corretorId, status: r.status, cotada: r.cotada },
+  })
+  if (error) throw new Error(mensagem(error))
+}
+
+/** Atualiza o seguro e move o vencimento das renovações ainda em aberto. */
+export async function atualizarSeguro(client: SupabaseClient, s: Seguro) {
+  const { error } = await client.from('seguros').update(linhaSeguro(s)).eq('id', s.id)
+  if (error) throw new Error(mensagem(error))
+  const { error: e2 } = await client
+    .from('renovacoes')
+    .update({ vencimento: s.fimVigencia })
+    .eq('seguro_id', s.id)
+    .in('status', ['pendente', 'cotando'])
+  if (e2) throw new Error(mensagem(e2))
 }
 
 export interface NovosRegistros {
