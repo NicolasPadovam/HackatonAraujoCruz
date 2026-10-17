@@ -7,10 +7,14 @@ export type StatusRenovacao = 'pendente' | 'cotando' | 'renovada' | 'nao_renovad
 
 export type OrigemCliente = 'carteira' | 'indicacao' | 'marketing'
 
+export type TipoPessoa = 'fisica' | 'juridica'
+
 export interface Cliente {
   id: string
+  tipo?: TipoPessoa
   nome: string
-  cpfCnpj?: string
+  cpfCnpj?: string // só dígitos
+  observacoes?: string
   telefone?: string
   email?: string
   origem: OrigemCliente
@@ -19,6 +23,7 @@ export interface Cliente {
 export interface Seguradora {
   id: string
   nome: string
+  apelidos?: string[] // variações vistas nas planilhas ("Porto", "PORTO SEGURO")
 }
 
 export interface Corretor {
@@ -32,6 +37,7 @@ export interface Seguro {
   clienteId: string
   seguradoraId: string
   ramo: Ramo
+  numeroApolice?: string
   inicioVigencia: string // ISO yyyy-mm-dd
   fimVigencia: string
   premioLiquido?: number
@@ -77,6 +83,20 @@ export interface Importacao {
   linhasRevisao: number
 }
 
+/** Como ler o relatório de uma seguradora (ou a planilha da corretora, seguradoraId = null). */
+export interface ModeloImportacao {
+  id: string
+  nome: string
+  seguradoraId: string | null
+  /** campo do CRM -> texto do cabeçalho da coluna na planilha */
+  mapeamento: Record<string, string>
+  opcoes: {
+    formatoData?: 'dmy' | 'mdy'
+    ramoPadrao?: Ramo
+    corretorPadraoId?: string
+  }
+}
+
 export interface Db {
   clientes: Cliente[]
   seguradoras: Seguradora[]
@@ -85,4 +105,5 @@ export interface Db {
   renovacoes: Renovacao[]
   cotacoes: Cotacao[]
   importacoes: Importacao[]
+  modelos: ModeloImportacao[]
 }

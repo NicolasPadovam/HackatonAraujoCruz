@@ -1,10 +1,14 @@
-import { ArrowLeft, ArrowRight, Mail, MessageCircle, Phone, IdCard } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Mail, MessageCircle, Pencil, Phone, IdCard, Plus } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { ClienteForm } from '../components/ClienteForm'
 import { RenovacaoSheet } from '../components/RenovacaoSheet'
-import { AvisoPrototipo, Avatar, Card, PageHeader, RamoBadge, Secao, StatusBadge, TD, TH, Vazio } from '../components/ui'
+import { SeguroForm } from '../components/SeguroForm'
+import { AvisoPrototipo, Avatar, BotaoPrimario, BotaoSecundario, Card, PageHeader, RamoBadge, Secao, StatusBadge, TD, TH, Vazio } from '../components/ui'
+import type { Seguro } from '../domain/types'
 import { useIndices, useStore } from '../data/store'
 import { fmtData, fmtMoeda, fmtPct, iniciais } from '../lib/format'
+import { fmtCpfCnpj } from '../lib/validacao'
 
 function Tabela({ cabecalho, children }: { cabecalho: string[]; children: ReactNode }) {
   return (
@@ -33,6 +37,9 @@ export default function ClienteFicha() {
   const { db } = useStore()
   const ix = useIndices()
   const [aberta, setAberta] = useState<string | null>(null)
+  const [editandoCliente, setEditandoCliente] = useState(false)
+  // undefined = fechado; null = novo seguro; Seguro = edição
+  const [seguroEmEdicao, setSeguroEmEdicao] = useState<Seguro | null | undefined>(undefined)
   const cliente = id ? ix.cliente.get(id) : undefined
 
   if (!cliente) {
@@ -63,7 +70,9 @@ export default function ClienteFicha() {
             <ArrowLeft className="size-4" /> Clientes
           </Link>
         }
-        direita={
+        direita={<>
+          <BotaoSecundario onClick={() => setEditandoCliente(true)}><Pencil className="size-4" /> Editar dados</BotaoSecundario>
+          <BotaoPrimario onClick={() => setSeguroEmEdicao(null)}><Plus className="size-4" /> Adicionar seguro</BotaoPrimario>
           <button
             disabled={!cliente.telefone}
             onClick={() => alert('Protótipo: abriria o WhatsApp Web do cliente.')}
@@ -71,7 +80,15 @@ export default function ClienteFicha() {
           >
             <MessageCircle className="size-4" /> {cliente.telefone ? 'WhatsApp' : 'Sem telefone'}
           </button>
-        }
+        </>}
+      />
+      <ClienteForm aberto={editandoCliente} onFechar={() => setEditandoCliente(false)} cliente={cliente} />
+      <SeguroForm
+        aberto={seguroEmEdicao !== undefined}
+        onFechar={() => setSeguroEmEdicao(undefined)}
+        clienteId={cliente.id}
+        clienteNome={cliente.nome}
+        seguro={seguroEmEdicao ?? undefined}
       />
 
       <div className="grid grid-cols-[320px_1fr] gap-6 px-8 py-6">
@@ -82,7 +99,7 @@ export default function ClienteFicha() {
               <p className="font-semibold leading-tight">{cliente.nome}</p>
             </div>
             <div className="space-y-2.5 border-t border-slate-100 pt-4">
-              <Contato icone={IdCard} valor={cliente.cpfCnpj} vazio="CPF/CNPJ não informado" />
+              <Contato icone={IdCard} valor={fmtCpfCnpj(cliente.cpfCnpj) || undefined} vazio="CPF/CNPJ não informado" />
               <Contato icone={Phone} valor={cliente.telefone} vazio="Sem telefone" />
               <Contato icone={Mail} valor={cliente.email} vazio="Sem e-mail" />
             </div>
@@ -95,17 +112,23 @@ export default function ClienteFicha() {
             <div><p className="text-xs text-slate-500">Comissão/ano</p><p className="font-semibold">{comissaoTotal ? fmtMoeda(comissaoTotal) : '—'}</p></div>
           </Card>
 
-          {!cliente.cpfCnpj && (
+          {(!cliente.cpfCnpj || !cliente.telefone) && (
             <AvisoPrototipo>
-              A planilha de renovações não traz CPF nem contato. Esses dados vão vir da base de clientes, que está sendo carregada no Supabase.
+              Cadastro incompleto. A planilha de renovações não traz CPF nem contato:{' '}
+              <button onClick={() => setEditandoCliente(true)} className="font-semibold underline">complete em Editar dados</button>.
             </AvisoPrototipo>
           )}
         </div>
 
         <div className="min-w-0 space-y-6">
           <Secao titulo="Seguros ativos">
-            {ativos.length === 0 ? <Vazio>Nenhum seguro ativo.</Vazio> : (
-              <Tabela cabecalho={['Ramo', 'Seguradora', 'Vigência', 'Prêmio líquido', 'Comissão', 'Parcelas']}>
+            {ativos.length === 0 ? (
+              <Vazio>
+                Nenhum seguro ativo.{' '}
+                <button onClick={() => setSeguroEmEdicao(null)} className="font-medium text-marca-600 underline">Adicionar seguro</button>
+              </Vazio>
+            ) : (
+              <Tabela cabecalho={['Ramo', 'Seguradora', 'Vigência', 'Prêmio líquido', 'Comissão', 'Parcelas', '']}>
                 {ativos.map((s) => (
                   <tr key={s.id}>
                     <td className={TD}><RamoBadge ramo={s.ramo} /></td>
@@ -114,6 +137,11 @@ export default function ClienteFicha() {
                     <td className={`${TD} tabular-nums`}>{fmtMoeda(s.premioLiquido)}</td>
                     <td className={`${TD} tabular-nums`}>{fmtPct(s.comissaoPct)}</td>
                     <td className={`${TD} whitespace-nowrap tabular-nums`}>{s.parcelas ? `${s.parcelas}x ${fmtMoeda(s.valorParcela)}` : '—'}</td>
+                    <td className={`${TD} text-right`}>
+                      <button onClick={() => setSeguroEmEdicao(s)} className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-marca-600" title="Editar seguro">
+                        <Pencil className="size-4" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </Tabela>

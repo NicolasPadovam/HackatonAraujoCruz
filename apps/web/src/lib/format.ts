@@ -48,10 +48,9 @@ export function addMeses(key: string, n: number): string {
   return toIso(d).slice(0, 7)
 }
 
-/** Meses com renovações, a partir de 2 meses atrás (histórico antigo fica na ficha do cliente). */
+/** Todos os meses com renovações (mais o mês atual), em ordem. */
 export function mesesRecentes(vencimentos: string[]): string[] {
-  const inicio = addMeses(mesKey(hojeIso()), -2)
-  return [...new Set(vencimentos.map(mesKey))].filter((m) => m >= inicio).sort()
+  return [...new Set([...vencimentos.map(mesKey), mesKey(hojeIso())])].sort()
 }
 
 export function mesLabel(key: string, curto = false): string {

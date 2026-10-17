@@ -7,6 +7,8 @@ Schema do CRM versionado em `migrations/`:
 | `…000000_schema_inicial` | Perfis/papéis, clientes, seguradoras, RLS base |
 | `…000100_ramo_outro` | Acrescenta o ramo `outro` |
 | `…000200_modelo_renovacoes` | Alinha ao [modelo de dados](../docs/arquitetura/modelo-dados.md): corretores (R, C), seguros, renovações, cotações, importações e a função `registrar_importacao` |
+| `…000300_cadastro_manual` | Função `cadastrar_seguro`: grava seguro + renovação numa transação (cadastro manual no CRM) |
+| `…000400_importacao_xlsx` | Tabela `modelos_importacao` (mapeamento de colunas por seguradora) e função `importar_lote` (importação inteira numa transação) |
 
 Seguradoras e corretores vêm das migrations (dados de referência). `seed.sql` não tem dados.
 

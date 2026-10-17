@@ -18,8 +18,8 @@ function prng(seed: number) {
 }
 
 const SEGURADORAS: Seguradora[] = [
-  { id: 'porto', nome: 'Porto Seguro' },
-  { id: 'tokio', nome: 'Tokio Marine' },
+  { id: 'porto', nome: 'Porto Seguro', apelidos: ['Porto'] },
+  { id: 'tokio', nome: 'Tokio Marine', apelidos: ['Tokio'] },
   { id: 'mapfre', nome: 'Mapfre' },
   { id: 'allianz', nome: 'Allianz' },
   { id: 'zurich', nome: 'Zurich' },
@@ -254,5 +254,6 @@ export function gerarDbExemplo(): Db {
     renovacoes,
     cotacoes,
     importacoes,
+    modelos: [],
   }
 }

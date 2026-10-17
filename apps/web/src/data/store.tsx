@@ -3,30 +3,30 @@
 //  - Demonstração (sem variáveis): dados fictícios em memória + localStorage.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { Cliente, Corretor, Db, Importacao, Renovacao, Seguradora, Seguro } from '../domain/types'
+import type { Cliente, Corretor, Db, ModeloImportacao, Renovacao, Seguradora, Seguro } from '../domain/types'
 import { supabase } from '../lib/supabase'
 import { gerarDbExemplo } from './mock'
-import { carregarDb, salvarImportacao, salvarRenovacao } from './remote'
+import {
+  atualizarCliente, atualizarSeguro, cadastrarSeguro, carregarDb, importarLote, inserirCliente, salvarModelo as salvarModeloRemoto,
+  salvarRenovacao, type LoteImportacao,
+} from './remote'
 
 const CHAVE = 'crm-araujo-cruz:prototipo:v1'
 
-const VAZIO: Db = { clientes: [], seguradoras: [], corretores: [], seguros: [], renovacoes: [], cotacoes: [], importacoes: [] }
+const VAZIO: Db = { clientes: [], seguradoras: [], corretores: [], seguros: [], renovacoes: [], cotacoes: [], importacoes: [], modelos: [] }
 
 function carregar(): Db {
   if (supabase) return VAZIO // os dados vêm do Supabase depois do login
   try {
     const salvo = localStorage.getItem(CHAVE)
-    if (salvo) return JSON.parse(salvo) as Db
+    if (salvo) {
+      const db = JSON.parse(salvo) as Db
+      return { ...db, modelos: db.modelos ?? [] } // dados salvos antes dos modelos de importação
+    }
   } catch {
     // storage indisponível ou corrompido: usa os dados de exemplo
   }
   return gerarDbExemplo()
-}
-
-interface Novos {
-  clientes: Cliente[]
-  seguros: Seguro[]
-  renovacoes: Renovacao[]
 }
 
 interface Store {
@@ -38,8 +38,14 @@ interface Store {
   limparErro: () => void
   recarregar: () => Promise<void>
   atualizarRenovacao: (id: string, patch: Partial<Renovacao>) => void
-  /** Rejeita se a gravação falhar (nada é gravado pela metade). */
-  registrarImportacao: (imp: Importacao, novos: Novos) => Promise<void>
+  /** Grava uma importação inteira. Rejeita se falhar (nada é gravado pela metade). */
+  importar: (lote: LoteImportacao) => Promise<void>
+  /** Guarda como ler o relatório de uma seguradora (mapeamento de colunas). */
+  salvarModelo: (m: ModeloImportacao, novo: boolean) => Promise<void>
+  /** Cria ou atualiza um cliente. Rejeita se a gravação falhar. */
+  salvarCliente: (c: Cliente, novo: boolean) => Promise<void>
+  /** Novo seguro (com a renovação no fim da vigência) ou edição de um existente. */
+  salvarSeguro: (s: Seguro, renovacao: Renovacao | null) => Promise<void>
   resetar: () => void
 }
 
@@ -90,15 +96,46 @@ export function DbProvider({ children }: { children: ReactNode }) {
     })
   }, [recarregar])
 
-  const registrarImportacao = useCallback(async (imp: Importacao, novos: Novos) => {
-    if (supabase) await salvarImportacao(supabase, imp, novos) // só atualiza a tela se gravou
+  const importar = useCallback(async (lote: LoteImportacao) => {
+    if (supabase) await importarLote(supabase, lote) // só atualiza a tela se gravou
+    const juntar = <T extends { id: string }>(atuais: T[], novos: T[]) => {
+      const porId = new Map(novos.map((x) => [x.id, x]))
+      return [...atuais.map((x) => porId.get(x.id) ?? x), ...novos.filter((x) => !atuais.some((a) => a.id === x.id))]
+    }
     setDb((atual) => ({
       ...atual,
-      clientes: [...atual.clientes, ...novos.clientes],
-      seguros: [...atual.seguros, ...novos.seguros],
-      renovacoes: [...atual.renovacoes, ...novos.renovacoes],
-      importacoes: [imp, ...atual.importacoes],
+      clientes: juntar(atual.clientes, lote.clientes),
+      seguros: juntar(atual.seguros, lote.seguros),
+      renovacoes: juntar(atual.renovacoes, lote.renovacoes),
+      importacoes: [lote.importacao, ...atual.importacoes],
     }))
+  }, [])
+
+  const salvarModelo = useCallback(async (m: ModeloImportacao, novo: boolean) => {
+    if (supabase) await salvarModeloRemoto(supabase, m, novo)
+    setDb((atual) => ({ ...atual, modelos: novo ? [...atual.modelos, m] : atual.modelos.map((x) => (x.id === m.id ? m : x)) }))
+  }, [])
+
+  const salvarCliente = useCallback(async (c: Cliente, novo: boolean) => {
+    if (supabase) await (novo ? inserirCliente(supabase, c) : atualizarCliente(supabase, c))
+    setDb((atual) => ({
+      ...atual,
+      clientes: novo ? [...atual.clientes, c] : atual.clientes.map((x) => (x.id === c.id ? c : x)),
+    }))
+  }, [])
+
+  const salvarSeguro = useCallback(async (s: Seguro, renovacao: Renovacao | null) => {
+    if (supabase) await (renovacao ? cadastrarSeguro(supabase, s, renovacao) : atualizarSeguro(supabase, s))
+    setDb((atual) => {
+      if (renovacao) return { ...atual, seguros: [...atual.seguros, s], renovacoes: [...atual.renovacoes, renovacao] }
+      return {
+        ...atual,
+        seguros: atual.seguros.map((x) => (x.id === s.id ? s : x)),
+        renovacoes: atual.renovacoes.map((r) =>
+          r.seguroId === s.id && (r.status === 'pendente' || r.status === 'cotando') ? { ...r, vencimento: s.fimVigencia } : r,
+        ),
+      }
+    })
   }, [])
 
   const resetar = useCallback(() => {
@@ -108,8 +145,10 @@ export function DbProvider({ children }: { children: ReactNode }) {
   const limparErro = useCallback(() => setErro(null), [])
 
   const value = useMemo(
-    () => ({ db, modo, carregando, erro, limparErro, recarregar, atualizarRenovacao, registrarImportacao, resetar }),
-    [db, modo, carregando, erro, limparErro, recarregar, atualizarRenovacao, registrarImportacao, resetar],
+    () => ({
+      db, modo, carregando, erro, limparErro, recarregar, atualizarRenovacao, importar, salvarModelo, salvarCliente, salvarSeguro, resetar,
+    }),
+    [db, modo, carregando, erro, limparErro, recarregar, atualizarRenovacao, importar, salvarModelo, salvarCliente, salvarSeguro, resetar],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -1,7 +1,7 @@
 import { Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { RenovacaoSheet } from '../components/RenovacaoSheet'
-import { PageHeader, RamoBadge, STATUS, Segmentos, Select, StatusBadge, TD, TH, Vazio, type Opcao } from '../components/ui'
+import { PageHeader, RamoBadge, STATUS, Segmentos, SeletorMes, Select, StatusBadge, TD, TH, Vazio, type Opcao } from '../components/ui'
 import type { Ramo, StatusRenovacao } from '../domain/types'
 import { useIndices, useStore } from '../data/store'
 import { diasAte, fmtData, hojeIso, mesesRecentes, mesKey, mesLabel, normalizarNome, prazoLabel } from '../lib/format'
@@ -51,7 +51,7 @@ export default function Renovacoes() {
       <PageHeader
         titulo="Renovações"
         subtitulo={`${mesLabel(mes)} · planilha do mês importada`}
-        direita={<Segmentos valor={mes} onChange={setMes} opcoes={meses.map((m) => ({ valor: m, label: mesLabel(m, true) }))} />}
+        direita={<SeletorMes valor={mes} meses={meses} onChange={setMes} rotulo={(m) => mesLabel(m)} />}
       />
 
       <div className="space-y-6 px-8 py-6">
