@@ -3,12 +3,12 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSessao } from '../auth/AuthGate'
 import { RenovacaoSheet } from '../components/RenovacaoSheet'
-import { FAIXA, PageHeader, RamoBadge, StatusBadge, TD, TH, Vazio } from '../components/ui'
-import type { Seguradora } from '../domain/types'
+import { FAIXA, PageHeader, RamoBadge, Segmentos, StatusBadge, TD, TH, Vazio } from '../components/ui'
+import type { Funcao, Seguradora } from '../domain/types'
 import type { FaixaVencimento } from '../lib/format'
-import type { Funcao } from '../domain/types'
 import { useIndices, useStore } from '../data/store'
-import { DIAS_ALERTA, faixaVencimento, fmtData, prazoLabel } from '../lib/format'
+import { FUNCAO_LABEL, atividadeDe, faseDoCiclo, mesAlvoDoCiclo } from '../lib/atividades'
+import { DIAS_ALERTA, faixaVencimento, fmtData, hojeIso, mesLabel, prazoLabel } from '../lib/format'
 import { portalSeguradora } from '../lib/portais'
 
 const FAIXAS: FaixaVencimento[] = ['urgente', 'atencao', 'proxima']
@@ -170,7 +170,6 @@ export default function Inicio() {
                     <td className={`${TD} font-medium`}>{cliente.nome}</td>
                     <td className={TD}><RamoBadge ramo={seguro.ramo} /></td>
                     <td className={`${TD} text-slate-600`}><SeguradoraLink seguradora={ix.seguradora.get(seguro.seguradoraId)} /></td>
-                    <td className={`${TD} text-slate-600`}>{ix.corretor.get(r.corretorId ?? '')?.nome ?? '—'}</td>
                     <td className={TD}><StatusBadge status={r.status} /></td>
                     <td className={TD}>
                       <span className="font-medium text-slate-800">{atividade.texto}</span>

@@ -38,7 +38,7 @@ export default function RenovacoesAba({ periodo }: { periodo: Periodo }) {
             <Funil
               etapas={[
                 { label: periodo.mes ? 'Vencem no mês' : 'Vencem no ano', valor: funil.total, cor: '#94a3b8' },
-                { label: 'Cotadas', valor: funil.cotadas, cor: HEX.cotando },
+                { label: 'Cotadas', valor: funil.cotadas, cor: MACRO.andamento.hex },
                 { label: 'Fechadas', valor: funil.fechadas, cor: '#6366f1' },
                 { label: 'Renovadas', valor: funil.renovadas, cor: MACRO.renovada.hex },
               ]}

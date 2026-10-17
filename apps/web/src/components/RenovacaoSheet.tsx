@@ -1,7 +1,7 @@
 import { ArrowRight, MessageCircle, User } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { Caminho, Renovacao, StatusRenovacao } from '../domain/types'
+import type { Caminho, StatusRenovacao } from '../domain/types'
 import { useIndices, useStore } from '../data/store'
 import {
   FUNCAO_LABEL, atividadeDe, ehFinal, exigeCotacao, transicaoPermitida, validarAvanco, type DadosCotacao,
