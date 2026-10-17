@@ -1,19 +1,14 @@
 import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { BarrasH, ColunasEmpilhadas, Funil, Legenda } from '../../components/graficos'
-import { Card, FAIXA, RAMO, RamoBadge, STATUS, Secao, StatusBadge, TD, TH, Vazio } from '../../components/ui'
-import type { Ramo, StatusRenovacao } from '../../domain/types'
+import { Card, FAIXA, MACRO, RAMO, RamoBadge, Secao, StatusBadge, TD, TH, Vazio } from '../../components/ui'
+import type { Ramo } from '../../domain/types'
+import type { Macro } from '../../lib/atividades'
 import { useIndices, useStore } from '../../data/store'
 import { faixaVencimento, fmtData, fmtDataCurta, iniciais, mesLabel, prazoLabel } from '../../lib/format'
 import { JANELA_MESES, cargaPorCorretor, filaDeAcao, funilDoMes, perdas, ultimosMeses, vencimentosPorSemana } from '../../lib/metricas'
 
-const HEX: Record<StatusRenovacao, string> = {
-  pendente: '#f59e0b',
-  cotando: '#0ea5e9',
-  renovada: '#10b981',
-  nao_renovada: '#f43f5e',
-}
-const ORDEM_STATUS: StatusRenovacao[] = ['pendente', 'cotando', 'renovada', 'nao_renovada']
+const ORDEM_MACRO: Macro[] = ['pendente', 'andamento', 'renovada', 'nao_renovada', 'cancelada']
 const LIMITE_FILA = 15
 
 export default function RenovacoesAba({ mes }: { mes: string }) {
@@ -31,9 +26,9 @@ export default function RenovacoesAba({ mes }: { mes: string }) {
   const colunas = semanas.map((s) => ({
     label: s.inicio ? fmtDataCurta(s.inicio) : 'Atrasadas',
     destaque: s.inicio === null && s.total > 0,
-    partes: ORDEM_STATUS.map((st) => ({ label: STATUS[st].label, valor: s.contagem[st], cor: HEX[st] })),
+    partes: ORDEM_MACRO.map((m) => ({ label: MACRO[m].label, valor: s.contagem[m], cor: MACRO[m].hex })),
   }))
-  const legendaStatus = ORDEM_STATUS.map((st) => ({ label: STATUS[st].label, cor: HEX[st] }))
+  const legendaStatus = ORDEM_MACRO.map((m) => ({ label: MACRO[m].label, cor: MACRO[m].hex }))
   const maiorCarga = Math.max(1, ...carga.map((c) => c.total))
 
   return (
@@ -44,16 +39,17 @@ export default function RenovacoesAba({ mes }: { mes: string }) {
             <Funil
               etapas={[
                 { label: 'Vencem no mês', valor: funil.total, cor: '#94a3b8' },
-                { label: 'Cotadas', valor: funil.cotadas, cor: HEX.cotando },
+                { label: 'Cotadas', valor: funil.cotadas, cor: MACRO.andamento.hex },
                 { label: 'Fechadas', valor: funil.fechadas, cor: '#6366f1' },
-                { label: 'Renovadas', valor: funil.renovadas, cor: HEX.renovada },
+                { label: 'Renovadas', valor: funil.renovadas, cor: MACRO.renovada.hex },
               ]}
             />
             <p className="text-xs text-slate-500">
               A porcentagem é a conversão em relação à etapa anterior. Paradas no momento:{' '}
               <span className="font-medium text-amber-700">{funil.pendentes} pendentes</span> (sem cotação) e{' '}
-              <span className="font-medium text-sky-700">{funil.cotando} cotando</span>. Perdidas:{' '}
-              <span className="font-medium text-rose-700">{funil.naoRenovadas}</span>.
+              <span className="font-medium text-sky-700">{funil.cotando} em andamento</span>. Perdidas:{' '}
+              <span className="font-medium text-rose-700">{funil.naoRenovadas + funil.canceladas}</span>
+              {funil.canceladas > 0 && ` (${funil.canceladas} canceladas)`}.
             </p>
           </Card>
         </Secao>
@@ -65,7 +61,7 @@ export default function RenovacoesAba({ mes }: { mes: string }) {
               linhas={carga.map((c) => ({
                 label: ix.corretor.get(c.corretorId)?.nome ?? c.corretorId,
                 valor: c.total,
-                detalhe: `${c.total} (${c.pendente} pendentes · ${c.cotando} cotando)`,
+                detalhe: `${c.total} (${c.pendente} pendentes · ${c.andamento} em andamento)`,
               }))}
             />
             <p className="text-xs text-slate-500">Inclui as que já venceram e continuam em aberto.</p>

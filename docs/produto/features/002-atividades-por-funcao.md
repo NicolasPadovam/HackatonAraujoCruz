@@ -1,6 +1,6 @@
 # 002 — Atividades por função (Administrativo e Corretora)
 
-**Status:** proposta — aguardando revisão
+**Status:** implementado (migrations 000600 e 000700 + telas). Pendente: aplicar as migrations no Supabase e testar com dados reais.
 
 ## Contexto
 

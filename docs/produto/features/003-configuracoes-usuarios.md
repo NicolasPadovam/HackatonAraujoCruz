@@ -1,6 +1,6 @@
 # 003 — Configurações > Usuários
 
-**Status:** proposta — aguardando revisão
+**Status:** implementado (migration 000700, Edge Function `gerir-usuarios` e tela). Pendente: publicar a função, configurar e-mail e URL no Supabase e testar com dados reais.
 
 ## Contexto
 

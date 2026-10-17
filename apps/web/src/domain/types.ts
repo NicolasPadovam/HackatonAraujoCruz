@@ -3,7 +3,29 @@
 
 export type Ramo = 'residencial' | 'auto' | 'vida' | 'outro'
 
-export type StatusRenovacao = 'pendente' | 'cotando' | 'renovada' | 'nao_renovada'
+/**
+ * Etapas da renovação (docs/produto/features/002-atividades-por-funcao.md).
+ * Em aberto: pendente -> cotando -> cotada -> enviada -> (negociando <-> enviada) -> renovada.
+ * Finais: renovada, nao_renovada (cliente não quis) e cancelada (negociação sem acordo).
+ */
+export type StatusRenovacao =
+  | 'pendente'
+  | 'cotando'
+  | 'cotada'
+  | 'enviada'
+  | 'negociando'
+  | 'renovada'
+  | 'nao_renovada'
+  | 'cancelada'
+
+/** Função na operação: define quais atividades aparecem para o usuário. */
+export type Funcao = 'administrativo' | 'corretora'
+
+/** Nível de acesso: administradores também gerenciam usuários (Configurações). */
+export type Acesso = 'administrador' | 'usuario'
+
+/** Como a nova oferta foi obtida na negociação. */
+export type Caminho = 'contato_seguradora' | 'reducao_comissao'
 
 export type OrigemCliente = 'carteira' | 'indicacao' | 'marketing'
 
@@ -23,6 +45,8 @@ export interface Cliente {
 export interface Seguradora {
   id: string
   nome: string
+  /** Seguradora parceira (entra no ciclo de importação). Ausente = ativa. */
+  ativa?: boolean
   apelidos?: string[] // variações vistas nas planilhas ("Porto", "PORTO SEGURO")
 }
 
@@ -66,6 +90,10 @@ export interface Cotacao {
   ramo: Ramo
   seguradoraId: string
   premio?: number
+  /** Comissão (%) desta oferta; registrada nas rodadas de negociação. */
+  comissaoPct?: number
+  /** Como a oferta nasceu na negociação; vazio na primeira cotação. */
+  caminho?: Caminho
   origem: 'manual' | 'multicalculo' | 'automatica'
   status: 'cotada' | 'enviada' | 'aceita' | 'recusada'
   data: string
@@ -76,6 +104,8 @@ export interface Importacao {
   arquivoNome: string
   aba: string
   mesReferencia: string // yyyy-mm
+  /** Seguradora do relatório importado; nulo/ausente para a planilha consolidada. */
+  seguradoraId?: string | null
   importadoPor: string
   importadoEm: string // ISO datetime
   linhasOk: number
@@ -95,6 +125,16 @@ export interface ModeloImportacao {
     ramoPadrao?: Ramo
     corretorPadraoId?: string
   }
+}
+
+/** Usuário do sistema (tabela perfis). */
+export interface Usuario {
+  id: string
+  nome: string
+  email: string
+  funcao: Funcao
+  acesso: Acesso
+  ativo: boolean
 }
 
 export interface Db {
