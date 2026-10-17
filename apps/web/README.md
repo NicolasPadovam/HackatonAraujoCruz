@@ -43,7 +43,7 @@ Como funciona:
 - Reimportar o mesmo arquivo **atualiza** em vez de duplicar. Relatório de seguradora (sem coluna de andamento) não desfaz o andamento marcado pela equipe.
 - Gravação numa transação (`importar_lote`): se algo falhar, nada é gravado.
 
-Planilhas **fictícias** para testar: `node scripts/gerar-planilhas-ficticias.mjs` gera `tests/fixtures/*.xlsx`. Planilhas reais ficam em `dados-reais/` (ignorada pelo git).
+Planilhas **fictícias** para testar: `node scripts/gerar-planilhas-ficticias.mjs` gera `tests/fixtures/*.xlsx`. Planilhas reais ficam em `data/raw/<seguradora>/` (fora do Git); layouts em [docs/importacao/](../../docs/importacao/README.md).
 
 ## Telas
 

@@ -19,6 +19,7 @@ Thumbs.db
 
 # Planilhas reais de clientes: nunca commitar
 data/
+dados-reais/
 *.xls
 *.xlsx
 *.xlsm
