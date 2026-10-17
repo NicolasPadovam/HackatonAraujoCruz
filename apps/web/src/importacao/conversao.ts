@@ -34,7 +34,7 @@ export function converterData(v: Celula, formato: FormatoData): string | null {
   const t = String(v).trim()
   let m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(t)
   if (m) return isoDe(+m[1], +m[2], +m[3])
-  m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})$/.exec(t)
+  m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})(?:\s.*)?$/.exec(t) // aceita hora no fim ("05/11/2026 00:00:00")
   if (!m) return null
   const ano = m[3].length === 2 ? 2000 + +m[3] : +m[3]
   return formato === 'dmy' ? isoDe(ano, +m[2], +m[1]) : isoDe(ano, +m[1], +m[2])
@@ -49,7 +49,7 @@ export function detectarFormatoData(valores: Celula[]): FormatoData | null {
   let mdy = 0
   for (const v of valores) {
     if (typeof v !== 'string') continue
-    const m = /^(\d{1,2})[/.-](\d{1,2})[/.-]\d{2,4}$/.exec(v.trim())
+    const m = /^(\d{1,2})[/.-](\d{1,2})[/.-]\d{2,4}(?:\s.*)?$/.exec(v.trim())
     if (!m) continue
     if (+m[1] > 12) dmy++
     if (+m[2] > 12) mdy++
@@ -113,12 +113,20 @@ export function converterStatus(renovada: Celula, cotada: Celula): StatusRenovac
   return converterSimNao(cotada) === true ? 'cotando' : 'pendente'
 }
 
+/** Códigos de ramo SUSEP vistos nos relatórios (docs/importacao/). Código desconhecido usa o ramo padrão. */
+const RAMO_POR_CODIGO: Record<string, Ramo> = { '531': 'auto', '0531': 'auto' }
+
+/**
+ * Ramo pela descrição ou pelo código. Pacote "AUTO+RESID" conta como residencial
+ * (decisão da equipe: o pacote é um seguro só). Código numérico desconhecido -> null (usa o padrão).
+ */
 export function converterRamo(v: Celula): Ramo | null {
   const t = normalizarNome(String(v ?? ''))
   if (!t) return null
-  if (t.startsWith('resid') || t.includes('residencia') || t.includes('casa') || t.includes('condominio') || t.includes('habitacional')) return 'residencial'
-  if (t.startsWith('auto') || t.includes('automovel') || t.includes('veiculo') || t.includes('moto') || t.includes('carro')) return 'auto'
-  if (t.startsWith('vida') || t.includes('acidentes pessoais') || t === 'ap') return 'vida'
+  if (/^\d+$/.test(t)) return RAMO_POR_CODIGO[t] ?? null
+  if (/resid|casa|condominio|habitacional/.test(t)) return 'residencial'
+  if (/\bauto|veiculo|\bmoto|carro/.test(t)) return 'auto'
+  if (/\bvida\b|acidentes pessoais|^ap$/.test(t)) return 'vida'
   return 'outro'
 }
 

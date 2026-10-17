@@ -10,14 +10,29 @@ export interface Aba {
   linhas: Celula[][]
 }
 
+/** Entidades HTML que sobram em relatórios exportados como tabela HTML ("T&#233;rmino" -> "Término"). */
+function decodificarEntidades(t: string): string {
+  if (!t.includes('&')) return t
+  return t
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+}
+
 export async function lerArquivo(arquivo: File): Promise<Aba[]> {
   const XLSX = await import('xlsx') // carregado só quando alguém importa
   const dados = await arquivo.arrayBuffer()
-  // cellDates: false -> datas chegam como número serial do Excel (sem problema de fuso).
-  const wb = XLSX.read(dados, { type: 'array', cellDates: false, dense: true })
+  // Vários relatórios ".xls" são, na verdade, HTML ou texto com TAB (ver docs/importacao/).
+  // raw: true -> nesses formatos de texto o SheetJS não "adivinha" datas e números
+  // (ele leria 05/11 como mês/dia e "1234,56" como milhar); a conversão fica com o importador.
+  // cellDates: false -> datas de .xlsx/.xls chegam como número serial do Excel (sem problema de fuso).
+  const wb = XLSX.read(dados, { type: 'array', cellDates: false, dense: true, raw: true })
   return wb.SheetNames.map((nome) => ({
     nome,
-    linhas: XLSX.utils.sheet_to_json<Celula[]>(wb.Sheets[nome], { header: 1, raw: true, defval: null, blankrows: true }),
+    linhas: XLSX.utils
+      .sheet_to_json<Celula[]>(wb.Sheets[nome], { header: 1, raw: true, defval: null, blankrows: true })
+      .map((l) => l.map((v) => (typeof v === 'string' ? decodificarEntidades(v) : v))),
   }))
 }
 
