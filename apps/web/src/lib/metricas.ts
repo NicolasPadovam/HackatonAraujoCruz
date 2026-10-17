@@ -1,9 +1,8 @@
 // Cálculos do Painel. Funções puras sobre o Db: sem acesso a rede nem a estado.
 // Usam apenas campos que a planilha de renovações já traz (nada de prêmio/comissão).
 
-import type { Db, Ramo, Renovacao, Seguro } from '../domain/types'
-import { macroStatus, statusEmAberto, type Macro } from './atividades'
-import { addMeses, diasAte, hojeIso, mesKey, toIso } from './format'
+import type { Db, Ramo, Renovacao, Seguro, StatusRenovacao } from '../domain/types'
+import { addMeses, diasAte, hojeIso, mesKey, mesLabel, toIso } from './format'
 
 export const JANELA_MESES = 12
 export const SEMANAS_CALENDARIO = 13 // ~90 dias
@@ -17,6 +16,31 @@ const perdida = (r: Renovacao) => r.status === 'nao_renovada' || r.status === 'c
 export function ultimosMeses(n = JANELA_MESES): string[] {
   const atual = mesKey(hojeIso())
   return Array.from({ length: n }, (_, i) => addMeses(atual, i - (n - 1)))
+}
+
+/** Os 12 meses (yyyy-mm) de um ano, inclusive os que ainda não chegaram. */
+export function mesesDoAno(ano: string | number): string[] {
+  return Array.from({ length: 12 }, (_, i) => `${ano}-${String(i + 1).padStart(2, '0')}`)
+}
+
+/** Período mostrado no Painel: um ano inteiro ou, opcionalmente, um mês dele. */
+export interface Periodo {
+  ano: string
+  mes: string | null
+  /** Meses (yyyy-mm) cobertos pelo período. */
+  meses: string[]
+  rotulo: string
+}
+
+export function periodoDe(ano: string, mes: string | null): Periodo {
+  return { ano, mes, meses: mes ? [mes] : mesesDoAno(ano), rotulo: mes ? mesLabel(mes) : ano }
+}
+
+/** Anos com renovações (mais o atual), em ordem crescente. */
+export function anosDisponiveis(db: Db): string[] {
+  const anos = new Set(db.renovacoes.map((r) => r.vencimento.slice(0, 4)))
+  anos.add(hojeIso().slice(0, 4))
+  return [...anos].sort()
 }
 
 function seguroDe(db: Db): Map<string, Seguro> {
@@ -63,8 +87,10 @@ export interface Funil {
   cotando: number
 }
 
-export function funilDoMes(db: Db, mes: string): Funil {
-  const doMes = db.renovacoes.filter((r) => mesKey(r.vencimento) === mes)
+/** Funil das renovações que vencem nos meses informados (um mês ou o ano todo). */
+export function funilDoPeriodo(db: Db, meses: string[]): Funil {
+  const janela = new Set(meses)
+  const doMes = db.renovacoes.filter((r) => janela.has(mesKey(r.vencimento)))
   const conta = (f: (r: Renovacao) => boolean) => doMes.filter(f).length
   return {
     total: doMes.length,
@@ -217,15 +243,18 @@ export function vendaCruzada(db: Db): VendaCruzada {
 
 export interface PontoCarteira {
   mes: string
-  clientes: number
-  seguros: number
+  /** null nos meses que ainda não chegaram. */
+  clientes: number | null
+  seguros: number | null
 }
 
 /** Seguros vigentes no fim de cada mês (hoje, para o mês atual). Vale tanto quanto o histórico importado. */
 export function evolucaoDaCarteira(db: Db, meses: string[]): PontoCarteira[] {
   const hoje = hojeIso()
   const comVigencia = db.seguros.filter((s) => s.inicioVigencia && s.fimVigencia && s.situacao !== 'cancelado')
+  const mesAtual = mesKey(hoje)
   return meses.map((mes) => {
+    if (mes > mesAtual) return { mes, seguros: null, clientes: null }
     const [a, m] = mes.split('-').map(Number)
     const fimDoMes = toIso(new Date(a, m, 0))
     const ref = fimDoMes < hoje ? fimDoMes : hoje

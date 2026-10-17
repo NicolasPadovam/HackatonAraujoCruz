@@ -50,7 +50,7 @@ Planilhas **fictícias** para testar: `node scripts/gerar-planilhas-ficticias.mj
 
 | Rota | Tela |
 | --- | --- |
-| `#/` | Renovações do mês: filtro por mês, ramo (padrão: residencial), corretor, status e busca. Clique numa linha para mudar o andamento |
+| `#/renovacoes` | Renovações do mês: kanban por andamento (padrão; arraste o card para mudar o status) ou lista. Filtro por mês, ramo (padrão: todos), corretor, status e busca. Clique numa renovação para mudar o andamento |
 | `#/clientes` | Busca e lista de clientes (um cadastro por cliente, vários seguros) |
 | `#/clientes/:id` | Ficha: seguros ativos, histórico de renovações e trocas de seguradora, cotações |
 | `#/importar` | Importação de .xlsx/.xls/.csv: arquivo → tipo e colunas → prévia → gravar |

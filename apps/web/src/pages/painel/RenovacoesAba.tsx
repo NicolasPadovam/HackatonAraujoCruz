@@ -5,23 +5,22 @@ import { Card, FAIXA, MACRO, RAMO, RamoBadge, Secao, StatusBadge, TD, TH, Vazio 
 import type { Ramo } from '../../domain/types'
 import type { Macro } from '../../lib/atividades'
 import { useIndices, useStore } from '../../data/store'
-import { faixaVencimento, fmtData, fmtDataCurta, iniciais, mesLabel, prazoLabel } from '../../lib/format'
-import { JANELA_MESES, cargaPorCorretor, filaDeAcao, funilDoMes, perdas, ultimosMeses, vencimentosPorSemana } from '../../lib/metricas'
+import { faixaVencimento, fmtData, fmtDataCurta, iniciais, prazoLabel } from '../../lib/format'
+import { type Periodo, cargaPorCorretor, filaDeAcao, funilDoPeriodo, perdas, vencimentosPorSemana } from '../../lib/metricas'
 
 const ORDEM_MACRO: Macro[] = ['pendente', 'andamento', 'renovada', 'nao_renovada', 'cancelada']
 const LIMITE_FILA = 15
 
-export default function RenovacoesAba({ mes }: { mes: string }) {
+export default function RenovacoesAba({ periodo }: { periodo: Periodo }) {
   const { db } = useStore()
   const ix = useIndices()
 
-  const funil = useMemo(() => funilDoMes(db, mes), [db, mes])
+  const funil = useMemo(() => funilDoPeriodo(db, periodo.meses), [db, periodo.meses])
   const semanas = useMemo(() => vencimentosPorSemana(db), [db])
   const fila = useMemo(() => filaDeAcao(db), [db])
   const carga = useMemo(() => cargaPorCorretor(db, 30), [db])
-  const janela = useMemo(() => ultimosMeses(), [])
-  const perdasRamo = useMemo(() => perdas(db, janela, (s) => s.ramo), [db, janela])
-  const perdasSeg = useMemo(() => perdas(db, janela, (s) => s.seguradoraId), [db, janela])
+  const perdasRamo = useMemo(() => perdas(db, periodo.meses, (s) => s.ramo), [db, periodo.meses])
+  const perdasSeg = useMemo(() => perdas(db, periodo.meses, (s) => s.seguradoraId), [db, periodo.meses])
 
   const colunas = semanas.map((s) => ({
     label: s.inicio ? fmtDataCurta(s.inicio) : 'Atrasadas',
@@ -34,12 +33,12 @@ export default function RenovacoesAba({ mes }: { mes: string }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 items-start gap-6">
-        <Secao titulo={`Funil de renovação · ${mesLabel(mes)}`}>
+        <Secao titulo={`Funil de renovação · ${periodo.rotulo}`}>
           <Card className="space-y-4">
             <Funil
               etapas={[
-                { label: 'Vencem no mês', valor: funil.total, cor: '#94a3b8' },
-                { label: 'Cotadas', valor: funil.cotadas, cor: MACRO.andamento.hex },
+                { label: periodo.mes ? 'Vencem no mês' : 'Vencem no ano', valor: funil.total, cor: '#94a3b8' },
+                { label: 'Cotadas', valor: funil.cotadas, cor: HEX.cotando },
                 { label: 'Fechadas', valor: funil.fechadas, cor: '#6366f1' },
                 { label: 'Renovadas', valor: funil.renovadas, cor: MACRO.renovada.hex },
               ]}
@@ -54,7 +53,7 @@ export default function RenovacoesAba({ mes }: { mes: string }) {
           </Card>
         </Secao>
 
-        <Secao titulo="Carga por corretor · em aberto até 30 dias">
+        <Secao titulo="Carga por corretor · em aberto até 30 dias (hoje)">
           <Card className="space-y-4">
             <BarrasH
               max={maiorCarga}
@@ -121,7 +120,7 @@ export default function RenovacoesAba({ mes }: { mes: string }) {
       </Secao>
 
       <div className="grid grid-cols-2 items-start gap-6">
-        <Secao titulo={`Perdidas por ramo · últimos ${JANELA_MESES} meses`}>
+        <Secao titulo={`Perdidas por ramo · ${periodo.rotulo}`}>
           <Card>
             {perdasRamo.length === 0 ? (
               <p className="text-sm text-slate-500">Nenhuma renovação perdida no período.</p>
@@ -137,7 +136,7 @@ export default function RenovacoesAba({ mes }: { mes: string }) {
             )}
           </Card>
         </Secao>
-        <Secao titulo={`Perdidas por seguradora · últimos ${JANELA_MESES} meses`}>
+        <Secao titulo={`Perdidas por seguradora · ${periodo.rotulo}`}>
           <Card>
             {perdasSeg.length === 0 ? (
               <p className="text-sm text-slate-500">Nenhuma renovação perdida no período.</p>
