@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, FileSpreadsheet, Link2, Loader2, RefreshCw, Search, Upload, UserPlus } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, FileSpreadsheet, Link2, Loader2, PencilLine, RefreshCw, Search, Upload, UserPlus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSessao } from '../auth/AuthGate'
@@ -10,9 +10,9 @@ import { useStore } from '../data/store'
 import { CAMPOS, sugerirMapeamento, type CampoDestino, type Mapeamento } from '../importacao/campos'
 import { detectarFormatoData, type FormatoData } from '../importacao/conversao'
 import { cabecalhos, detectarCabecalho, lerArquivo, type Aba } from '../importacao/leitura'
-import { processar, type LinhaResultado, type Plano, type Resultado } from '../importacao/processar'
+import { chaveLinha, processar, type Correcao, type LinhaResultado, type Plano, type Resultado } from '../importacao/processar'
 import { fmtData, hojeIso, mesKey, normalizarNome } from '../lib/format'
-import { fmtCpfCnpj } from '../lib/validacao'
+import { cnpjValido, cpfValido, fmtCpfCnpj, somenteDigitos } from '../lib/validacao'
 
 type Passo = 'arquivo' | 'configurar' | 'previa' | 'pronto'
 const PASSOS: Passo[] = ['arquivo', 'configurar', 'previa', 'pronto']
@@ -24,6 +24,7 @@ const RESULTADO: Record<Resultado, { label: string; icone: typeof Link2; classe:
   novo_cliente: { label: 'Cliente novo', icone: UserPlus, classe: 'text-emerald-700 bg-emerald-50' },
   vinculado: { label: 'Cliente existente', icone: Link2, classe: 'text-marca-600 bg-marca-50' },
   atualiza: { label: 'Atualiza renovação', icone: RefreshCw, classe: 'text-slate-600 bg-slate-100' },
+  pendente: { label: 'Falta CPF ou nome', icone: PencilLine, classe: 'text-orange-700 bg-orange-50' },
   revisao: { label: 'Revisar', icone: Search, classe: 'text-amber-800 bg-amber-50' },
   erro: { label: 'Erro', icone: AlertTriangle, classe: 'text-rose-700 bg-rose-50' },
 }
@@ -47,6 +48,7 @@ export default function Importar() {
   const [corretorPadraoId, setCorretorPadraoId] = useState('')
 
   const [resultado, setResultado] = useState<{ linhas: LinhaResultado[]; plano: Plano } | null>(null)
+  const [correcoes, setCorrecoes] = useState<Record<string, Correcao>>({})
   const [filtro, setFiltro] = useState<Resultado | 'todos'>('todos')
   const [mostrar, setMostrar] = useState(POR_PAGINA)
   const [gravando, setGravando] = useState(false)
@@ -109,6 +111,7 @@ export default function Importar() {
       if (!lidas.some((a) => a.linhas.length > 1)) throw new Error('O arquivo não tem linhas para importar.')
       setArquivo(f)
       setAbas(lidas)
+      setCorrecoes({})
       // Palpite do tipo: nome da seguradora no nome do arquivo; senão, a planilha da corretora.
       const palavras = new Set(normalizarNome(f.name).split(/[^a-z0-9]+/))
       const seg = db.seguradoras.find((s) =>
@@ -133,7 +136,7 @@ export default function Importar() {
     abasEscolhidas.length === 0 && 'pelo menos uma aba',
   ].filter(Boolean) as string[]
 
-  const gerarPrevia = () => {
+  const gerarPrevia = (manterFiltro = false) => {
     setResultado(
       processar({
         db,
@@ -143,20 +146,42 @@ export default function Importar() {
         formatoData,
         ramoPadrao,
         corretorPadraoId,
+        correcoes,
       }),
     )
-    setFiltro('todos')
-    setMostrar(POR_PAGINA)
+    if (!manterFiltro) {
+      setFiltro('todos')
+      setMostrar(POR_PAGINA)
+    }
     setErroGravacao(null)
     setPasso('previa')
   }
 
   const conta = useMemo(() => {
-    const c: Record<Resultado, number> = { novo_cliente: 0, vinculado: 0, atualiza: 0, revisao: 0, erro: 0 }
+    const c: Record<Resultado, number> = { novo_cliente: 0, vinculado: 0, atualiza: 0, pendente: 0, revisao: 0, erro: 0 }
     resultado?.linhas.forEach((l) => c[l.resultado]++)
     return c
   }, [resultado])
   const validas = conta.novo_cliente + conta.vinculado + conta.atualiza
+
+  /**
+   * Linhas que esperam dados da pessoa. Falta só o CPF: uma entrada por nome (o CPF digitado
+   * vale para todas as linhas do mesmo cliente). Nome com XXX: uma entrada por linha.
+   */
+  const pendentes = useMemo(() => {
+    const grupos = new Map<string, { chave: string; linha: LinhaResultado; outras: number }>()
+    for (const l of resultado?.linhas ?? []) {
+      if (l.resultado !== 'pendente' || !l.pendencias) continue
+      const k = l.pendencias.nome ? chaveLinha(l.aba, l.linha) : `nome:${normalizarNome(l.segurado ?? '')}`
+      const g = grupos.get(k)
+      if (g) g.outras++
+      else grupos.set(k, { chave: chaveLinha(l.aba, l.linha), linha: l, outras: 0 })
+    }
+    return [...grupos.values()]
+  }, [resultado])
+
+  const corrigir = (chave: string, campo: keyof Correcao, valor: string) =>
+    setCorrecoes((c) => ({ ...c, [chave]: { ...c[chave], [campo]: valor } }))
 
   const confirmar = async () => {
     if (!resultado || !arquivo) return
@@ -176,12 +201,12 @@ export default function Importar() {
           importadoEm: new Date().toISOString(),
           linhasOk: validas,
           linhasErro: conta.erro,
-          linhasRevisao: conta.revisao,
+          linhasRevisao: conta.revisao + conta.pendente,
         },
         ...resultado.plano,
         linhas: resultado.linhas.map((l) => ({
           dadosBrutos: l.dadosBrutos,
-          status: l.resultado === 'erro' ? 'erro' : l.resultado === 'revisao' ? 'revisao' : 'ok',
+          status: l.resultado === 'erro' ? 'erro' : l.resultado === 'revisao' || l.resultado === 'pendente' ? 'revisao' : 'ok',
           mensagem: l.mensagens.join(' ') || undefined,
           renovacaoId: l.renovacaoId,
         })),
@@ -214,6 +239,7 @@ export default function Importar() {
     setArquivo(null)
     setAbas([])
     setResultado(null)
+    setCorrecoes({})
     setErroGravacao(null)
     setAvisoModelo(null)
   }
@@ -424,7 +450,7 @@ export default function Importar() {
                 </table>
                 <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3">
                   <span className="text-sm text-rose-700">{faltando.length > 0 && `Falta: ${faltando.join(', ')}.`}</span>
-                  <BotaoPrimario disabled={faltando.length > 0} onClick={gerarPrevia}>Gerar prévia</BotaoPrimario>
+                  <BotaoPrimario disabled={faltando.length > 0} onClick={() => gerarPrevia()}>Gerar prévia</BotaoPrimario>
                 </div>
               </div>
             </div>
@@ -433,7 +459,7 @@ export default function Importar() {
 
         {passo === 'previa' && resultado && (
           <div className="space-y-4">
-            <div className="grid grid-cols-5 gap-3">
+            <div className="grid grid-cols-6 gap-3">
               {(Object.keys(RESULTADO) as Resultado[]).map((r) => {
                 const R = RESULTADO[r]
                 const Icone = R.icone
@@ -453,10 +479,89 @@ export default function Importar() {
               })}
             </div>
 
+            {pendentes.length > 0 && (
+              <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-orange-200">
+                <div className="border-b border-orange-200 bg-orange-50 px-4 py-3">
+                  <p className="font-medium text-orange-900">Complete os dados de {conta.pendente} linha(s)</p>
+                  <p className="text-sm text-orange-800">
+                    Sem CPF/CNPJ, o cliente não entra no sistema: digite o documento (basta uma vez por cliente).
+                    Nome com <strong>XXX</strong> veio mascarado pela seguradora: escreva o nome correto.
+                    Depois clique em <strong>Atualizar prévia</strong>. Linhas não completadas não são gravadas.
+                  </p>
+                </div>
+                <div className="max-h-[28rem] overflow-y-auto">
+                  <table className="w-full">
+                    <thead className="sticky top-0 bg-slate-50">
+                      <tr>
+                        <th className={TH}>Aba · linha</th>
+                        <th className={TH}>Nome na planilha</th>
+                        <th className={TH}>Nome do cliente</th>
+                        <th className={TH}>CPF/CNPJ</th>
+                        <th className={TH}>Seguradora · vencimento</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {pendentes.map(({ chave, linha: l, outras }) => {
+                        const c = correcoes[chave] ?? {}
+                        const doc = somenteDigitos(c.cpfCnpj ?? '')
+                        const docInvalido = doc.length > 0 && !(doc.length === 11 ? cpfValido(doc) : doc.length === 14 && cnpjValido(doc))
+                        return (
+                          <tr key={chave}>
+                            <td className={`${TD} whitespace-nowrap text-xs text-slate-400`}>
+                              {l.aba} · {l.linha}
+                              {outras > 0 && <span className="block">+{outras} linha(s) do mesmo nome</span>}
+                            </td>
+                            <td className={`${TD} text-slate-600`}>{l.nomePlanilha}</td>
+                            <td className={`${TD} w-80`}>
+                              {l.pendencias?.nome ? (
+                                <input
+                                  className={`${INPUT} ${c.nome && /x{3}/i.test(c.nome) ? 'ring-rose-300' : ''}`}
+                                  placeholder="Nome correto"
+                                  aria-label={`Nome correto da linha ${l.linha}`}
+                                  value={c.nome ?? l.nomePlanilha ?? ''}
+                                  onChange={(e) => corrigir(chave, 'nome', e.target.value)}
+                                />
+                              ) : (
+                                <span className="font-medium">{l.segurado}</span>
+                              )}
+                            </td>
+                            <td className={`${TD} w-56`}>
+                              {l.pendencias?.cpf ? (
+                                <>
+                                  <input
+                                    className={`${INPUT} tabular-nums ${docInvalido && doc.length >= 11 ? 'ring-rose-300' : ''}`}
+                                    placeholder="000.000.000-00"
+                                    inputMode="numeric"
+                                    maxLength={18}
+                                    aria-label={`CPF ou CNPJ da linha ${l.linha}`}
+                                    value={c.cpfCnpj ?? ''}
+                                    onChange={(e) => corrigir(chave, 'cpfCnpj', fmtCpfCnpj(e.target.value))}
+                                  />
+                                  {docInvalido && doc.length >= 11 && <span className="mt-1 block text-xs text-rose-600">CPF/CNPJ inválido</span>}
+                                </>
+                              ) : (
+                                <span className="tabular-nums text-slate-600">{l.cpfCnpj ? fmtCpfCnpj(l.cpfCnpj) : 'Já cadastrado'}</span>
+                              )}
+                            </td>
+                            <td className={`${TD} whitespace-nowrap text-sm text-slate-600`}>
+                              {l.seguradora} · {l.vencimento ? fmtData(l.vencimento) : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-4 py-3">
+                  <BotaoPrimario onClick={() => gerarPrevia(true)}><RefreshCw className="size-4" /> Atualizar prévia</BotaoPrimario>
+                </div>
+              </div>
+            )}
+
             <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/70">
               <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
                 {resultado.linhas.length} linhas lidas. Clientes são reconhecidos pelo CPF/CNPJ e, sem ele, pelo nome (mesmo nome = mesmo cliente).
-                Linhas com <strong>erro</strong> ou para <strong>revisar</strong> não são gravadas.
+                Linhas com <strong>erro</strong>, para <strong>revisar</strong> ou com <strong>CPF/nome faltando</strong> não são gravadas.
               </div>
               <table className="w-full">
                 <thead className="bg-slate-50">
@@ -475,7 +580,7 @@ export default function Importar() {
                   {visiveis.slice(0, mostrar).map((l) => {
                     const R = RESULTADO[l.resultado]
                     return (
-                      <tr key={`${l.aba}-${l.linha}`} className={l.resultado === 'erro' ? 'bg-rose-50/40' : l.resultado === 'revisao' ? 'bg-amber-50/40' : ''}>
+                      <tr key={`${l.aba}-${l.linha}`} className={l.resultado === 'erro' ? 'bg-rose-50/40' : l.resultado === 'revisao' ? 'bg-amber-50/40' : l.resultado === 'pendente' ? 'bg-orange-50/40' : ''}>
                         <td className={`${TD} whitespace-nowrap text-xs text-slate-400`}>{l.aba} · {l.linha}</td>
                         <td className={`${TD} font-medium`}>{l.segurado ?? '—'}</td>
                         <td className={`${TD} whitespace-nowrap tabular-nums text-slate-600`}>{l.cpfCnpj ? fmtCpfCnpj(l.cpfCnpj) : '—'}</td>
@@ -499,6 +604,9 @@ export default function Importar() {
               )}
               {erroGravacao && <p role="alert" className="border-t border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">{erroGravacao}</p>}
               <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
+                {conta.pendente > 0 && (
+                  <span className="mr-auto text-sm text-orange-800">{conta.pendente} linha(s) sem CPF ou com nome XXX ficarão de fora.</span>
+                )}
                 <BotaoSecundario onClick={() => setPasso('configurar')} disabled={gravando}>Voltar e ajustar colunas</BotaoSecundario>
                 <BotaoPrimario onClick={() => void confirmar()} disabled={gravando || validas === 0}>
                   {gravando && <Loader2 className="size-4 animate-spin" />} Importar {validas} linhas
@@ -515,7 +623,7 @@ export default function Importar() {
               <p className="text-lg font-semibold">Importação gravada</p>
               <p className="text-sm text-slate-500">
                 {conta.novo_cliente} clientes novos · {conta.vinculado} em clientes existentes · {conta.atualiza} renovações atualizadas
-                {(conta.erro > 0 || conta.revisao > 0) && ` · ${conta.erro + conta.revisao} linhas não gravadas`}
+                {conta.erro + conta.revisao + conta.pendente > 0 && ` · ${conta.erro + conta.revisao + conta.pendente} linhas não gravadas`}
               </p>
             </div>
             {avisoModelo && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-200">{avisoModelo}</p>}

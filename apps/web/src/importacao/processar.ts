@@ -12,11 +12,26 @@ import {
 } from './conversao'
 import type { Aba, Celula } from './leitura'
 
-export type Resultado = 'novo_cliente' | 'vinculado' | 'atualiza' | 'revisao' | 'erro'
+export type Resultado = 'novo_cliente' | 'vinculado' | 'atualiza' | 'pendente' | 'revisao' | 'erro'
+
+/** O que a pessoa digitou na prévia para uma linha (chave: chaveLinha). */
+export interface Correcao {
+  nome?: string
+  cpfCnpj?: string
+}
+
+export const chaveLinha = (aba: string, linha: number) => `${aba}|${linha}`
+
+/** Nome mascarado pela seguradora ("JOAO XXX SILVA"): precisa ser corrigido à mão. */
+export const nomeMascarado = (nome: string) => /x{3}/i.test(nome)
 
 export interface LinhaResultado {
   aba: string
   linha: number // número da linha no Excel (1-based)
+  /** Nome como veio na planilha (antes da correção). */
+  nomePlanilha?: string
+  /** O que falta a pessoa informar para a linha poder ser gravada. */
+  pendencias?: { nome: boolean; cpf: boolean }
   segurado?: string
   cpfCnpj?: string
   seguradora?: string
@@ -43,6 +58,11 @@ export interface Entrada {
   formatoData: FormatoData
   ramoPadrao: Ramo
   corretorPadraoId: string
+  correcoes?: Record<string, Correcao>
+}
+
+function documentoValido(d?: string): d is string {
+  return !!d && (d.length === 11 ? cpfValido(d) : d.length === 14 && cnpjValido(d))
 }
 
 const TOLERANCIA_DIAS = 3
@@ -101,6 +121,17 @@ export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano 
   }
   brutas.sort((a, b) => (a.venc ?? '9999').localeCompare(b.venc ?? '9999'))
 
+  // CPF digitado numa linha vale para as outras linhas do mesmo nome (digita uma vez por cliente).
+  const correcoes = e.correcoes ?? {}
+  const cpfDigitadoPorNome = new Map<string, string>()
+  for (const b of brutas) {
+    const c = correcoes[chaveLinha(b.aba, b.linha)]
+    const doc = c?.cpfCnpj ? somenteDigitos(c.cpfCnpj) : undefined
+    const iSeg = e.mapeamento.segurado ? b.cab.indexOf(e.mapeamento.segurado) : -1
+    const nome = c?.nome?.trim() || (iSeg >= 0 ? texto(b.celulas[iSeg] ?? null) : undefined)
+    if (nome && !nomeMascarado(nome) && documentoValido(doc)) cpfDigitadoPorNome.set(normalizarNome(nome), doc)
+  }
+
   const linhas: LinhaResultado[] = []
 
   for (const b of brutas) {
@@ -116,9 +147,18 @@ export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano 
     const msg = (m: string) => res.mensagens.push(m)
 
     // --- Conversão ---------------------------------------------------------
-    const segurado = texto(valor('segurado'))
+    const correcao = correcoes[chaveLinha(b.aba, b.linha)]
+    const nomePlanilha = texto(valor('segurado'))
+    res.nomePlanilha = nomePlanilha
+    res.segurado = nomePlanilha
+    if (!nomePlanilha) { msg('Sem nome do segurado.'); continue }
+    // Nome com "XXX" (mascarado pela seguradora): só entra com o nome corrigido pela pessoa.
+    const nomeDigitado = texto(correcao?.nome ?? null)
+    const precisaNome = nomeMascarado(nomePlanilha) && (!nomeDigitado || nomeMascarado(nomeDigitado))
+    const segurado = nomeMascarado(nomePlanilha) && !precisaNome ? nomeDigitado! : nomePlanilha
     res.segurado = segurado
-    if (!segurado) { msg('Sem nome do segurado.'); continue }
+    if (segurado !== nomePlanilha) msg('Nome corrigido na importação.')
+    else if (nomeDigitado && precisaNome) msg('O nome corrigido ainda tem "XXX".')
 
     const venc = b.venc
     if (!venc) { msg(`Vencimento inválido: "${valor('vencimento') ?? ''}".`); continue }
@@ -149,11 +189,26 @@ export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano 
     res.status = status
 
     let cpf = converterDocumento(valor('cpfCnpj'))
-    if (texto(valor('cpfCnpj')) && (!cpf || !(cpf.length === 11 ? cpfValido(cpf) : cnpjValido(cpf)))) {
-      msg(`CPF/CNPJ inválido ignorado: "${texto(valor('cpfCnpj'))}".`)
+    if (texto(valor('cpfCnpj')) && !documentoValido(cpf)) {
+      msg(`CPF/CNPJ inválido na planilha: "${texto(valor('cpfCnpj'))}".`)
       cpf = undefined
     }
+    if (!cpf && correcao?.cpfCnpj) {
+      const d = somenteDigitos(correcao.cpfCnpj)
+      if (documentoValido(d)) { cpf = d; msg('CPF/CNPJ informado na importação.') }
+      else msg('O CPF/CNPJ digitado não é válido.')
+    }
+    if (!cpf && !precisaNome) cpf = cpfDigitadoPorNome.get(normalizarNome(segurado))
     res.cpfCnpj = cpf
+
+    // Sem CPF/CNPJ, a linha só entra se o nome já for de um cliente cadastrado com documento.
+    const mesmoNome = precisaNome ? [] : porNome.get(normalizarNome(segurado)) ?? []
+    const precisaCpf = !cpf && !(mesmoNome.length === 1 && mesmoNome[0].cpfCnpj)
+    if (precisaNome || precisaCpf) {
+      res.resultado = 'pendente'
+      res.pendencias = { nome: precisaNome, cpf: precisaCpf }
+      continue
+    }
 
     // Pode vir mais de um ("(11) 4000-1234 / (11) 90001-2345"): prefere o celular (11 dígitos).
     const fones = (texto(valor('telefone')) ?? '').split(/[/;|]/).map(somenteDigitos).filter((d) => d.length === 10 || d.length === 11)
