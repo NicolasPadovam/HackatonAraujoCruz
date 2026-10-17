@@ -59,9 +59,26 @@ export function mesLabel(key: string, curto = false): string {
   return curto ? `${nome.slice(0, 3)}/${String(a).slice(2)}` : `${nome} ${a}`
 }
 
-export function diasAte(iso: string): number {
-  const ms = parseIso(iso).getTime() - parseIso(hojeIso()).getTime()
+export function diasAte(iso: string, hoje = hojeIso()): number {
+  const ms = parseIso(iso).getTime() - parseIso(hoje).getTime()
   return Math.round(ms / 86_400_000)
+}
+
+/** Antecedência máxima (dias) para uma renovação em aberto entrar no alerta. */
+export const DIAS_ALERTA = 10
+
+/**
+ * Faixa de alerta de vencimento (docs/produto/features/001-tela-inicial-vencimentos.md):
+ * vencida ou até 1 dia = urgente, 2 a 5 = atencao, 6 a 10 = proxima, depois disso null.
+ */
+export type FaixaVencimento = 'urgente' | 'atencao' | 'proxima'
+
+export function faixaVencimento(iso: string, hoje = hojeIso()): FaixaVencimento | null {
+  const d = diasAte(iso, hoje)
+  if (d <= 1) return 'urgente'
+  if (d <= 5) return 'atencao'
+  if (d <= DIAS_ALERTA) return 'proxima'
+  return null
 }
 
 export function prazoLabel(iso: string): string {

@@ -2,10 +2,10 @@ import { Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { KanbanRenovacoes } from '../components/KanbanRenovacoes'
 import { RenovacaoSheet } from '../components/RenovacaoSheet'
-import { PageHeader, RamoBadge, STATUS, Segmentos, SeletorMes, Select, StatusBadge, TD, TH, Vazio, type Opcao } from '../components/ui'
+import { FAIXA, PageHeader, RamoBadge, STATUS, Segmentos, Select, StatusBadge, TD, TH, Vazio, type Opcao } from '../components/ui'
 import type { Ramo, StatusRenovacao } from '../domain/types'
 import { useIndices, useStore } from '../data/store'
-import { diasAte, fmtData, hojeIso, mesesRecentes, mesKey, mesLabel, normalizarNome, prazoLabel } from '../lib/format'
+import { faixaVencimento, fmtData, hojeIso, mesesRecentes, mesKey, mesLabel, normalizarNome, prazoLabel } from '../lib/format'
 
 type FiltroRamo = Ramo | 'todos'
 type FiltroStatus = StatusRenovacao | 'todos'
@@ -127,7 +127,7 @@ export default function Renovacoes() {
               <tbody className="divide-y divide-slate-100">
                 {lista.map(({ r, seguro, cliente }) => {
                   const aberto = r.status === 'pendente' || r.status === 'cotando'
-                  const urgente = aberto && diasAte(r.vencimento) <= 7
+                  const faixa = aberto ? faixaVencimento(r.vencimento) : null
                   return (
                     <tr key={r.id} onClick={() => setAberta(r.id)} className="cursor-pointer hover:bg-marca-50/50">
                       <td className={`${TD} whitespace-nowrap font-medium tabular-nums`}>{fmtData(r.vencimento)}</td>
@@ -136,7 +136,7 @@ export default function Renovacoes() {
                       <td className={`${TD} text-slate-600`}>{ix.seguradora.get(seguro.seguradoraId)?.nome}</td>
                       <td className={`${TD} text-slate-600`}>{ix.corretor.get(r.corretorId)?.nome}</td>
                       <td className={TD}><StatusBadge status={r.status} /></td>
-                      <td className={`${TD} whitespace-nowrap ${urgente ? 'font-medium text-rose-600' : 'text-slate-400'}`}>
+                      <td className={`${TD} whitespace-nowrap ${faixa ? FAIXA[faixa].texto : 'text-slate-400'}`}>
                         {aberto ? prazoLabel(r.vencimento) : '—'}
                       </td>
                     </tr>
