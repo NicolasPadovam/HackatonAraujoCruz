@@ -49,7 +49,7 @@ erDiagram
 | --- | --- | --- |
 | id | uuid PK | |
 | nome | text | |
-| sigla | text unique | "R", "C", como aparece na planilha |
+| sigla | text unique | Como aparece na planilha. Carga inicial: R = Renata, C = Carlos |
 
 ### seguros (apólices)
 | Campo | Tipo | Notas |
@@ -60,7 +60,8 @@ erDiagram
 | ramo | enum: `residencial`, `auto`, `vida`, `outro` | |
 | numero_apolice | text, nullable | Não vem na planilha atual |
 | inicio_vigencia, fim_vigencia | date | `fim_vigencia` = coluna Vigência |
-| premio_liquido, comissao, valor_parcela | numeric, nullable | Hoje vêm vazios |
+| premio_liquido, valor_parcela | numeric, nullable | Hoje vêm vazios |
+| comissao_pct | numeric(5,2), nullable | Percentual (ex.: 15.00 = 15%) |
 | parcelas | int, nullable | |
 | situacao | enum: `ativo`, `renovado`, `nao_renovado`, `cancelado` | |
 
@@ -100,6 +101,7 @@ No MVP essa tabela pode ficar vazia. Ela existe para a ficha do cliente e para a
 | --- | --- | --- |
 | importacoes.id | uuid PK | |
 | modelo | text | Ex.: `renovacoes_consolidada_v1`, depois `porto_v1`, `tokio_v1` |
+| mes_referencia | date | 1º dia do mês da planilha (há uma planilha por mês) |
 | arquivo_nome, importado_por, importado_em | | |
 | linhas_ok, linhas_erro, linhas_revisao | int | |
 | importacao_linhas.dados_brutos | jsonb | A linha original, como veio |
@@ -114,7 +116,7 @@ No MVP essa tabela pode ficar vazia. Ela existe para a ficha do cliente e para a
    - 1 resultado: vincula.
    - 0 resultados: cria o cliente.
    - Mais de 1 resultado (homônimos): linha vai para `revisao`, sem gravar nada.
-3. Quando a base de clientes com CPF for importada, os clientes criados só pelo nome recebem o CPF (`update`), sem criar outro registro.
+3. A base de clientes está sendo carregada direto no Supabase (stand-by deste lado). A tabela `clientes` acima deve ser alinhada com a que está sendo criada lá, não duplicada. Quando ela estiver pronta com CPF, os clientes criados só pelo nome recebem o CPF (`update`), sem criar outro registro.
 
 ## Modelos de importação
 
