@@ -137,7 +137,7 @@ export default function Renovacoes() {
                       <td className={`${TD} font-medium`}>{cliente.nome}</td>
                       <td className={TD}><RamoBadge ramo={seguro.ramo} /></td>
                       <td className={`${TD} text-slate-600`}>{ix.seguradora.get(seguro.seguradoraId)?.nome}</td>
-                      <td className={`${TD} text-slate-600`}>{ix.corretor.get(r.corretorId)?.nome}</td>
+                      <td className={`${TD} text-slate-600`}>{ix.corretor.get(r.corretorId ?? '')?.nome ?? '—'}</td>
                       <td className={TD}><StatusBadge status={r.status} /></td>
                       <td className={`${TD} text-slate-600`}>
                         {atividade ? <>{atividade.texto} <span className="text-xs text-slate-400">· {FUNCAO_LABEL[atividade.funcao]}</span></> : '—'}

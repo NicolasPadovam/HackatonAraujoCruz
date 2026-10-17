@@ -3,12 +3,13 @@ import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSessao } from '../auth/AuthGate'
 import { RenovacaoSheet } from '../components/RenovacaoSheet'
-import { FAIXA, PageHeader, RamoBadge, Segmentos, StatusBadge, TD, TH, Vazio } from '../components/ui'
+import { FAIXA, PageHeader, RamoBadge, StatusBadge, TD, TH, Vazio } from '../components/ui'
+import type { Seguradora } from '../domain/types'
 import type { FaixaVencimento } from '../lib/format'
 import type { Funcao } from '../domain/types'
 import { useIndices, useStore } from '../data/store'
-import { FUNCAO_LABEL, atividadeDe, faseDoCiclo, mesAlvoDoCiclo } from '../lib/atividades'
-import { DIAS_ALERTA, faixaVencimento, fmtData, hojeIso, mesLabel, prazoLabel } from '../lib/format'
+import { DIAS_ALERTA, faixaVencimento, fmtData, prazoLabel } from '../lib/format'
+import { portalSeguradora } from '../lib/portais'
 
 const FAIXAS: FaixaVencimento[] = ['urgente', 'atencao', 'proxima']
 
@@ -168,7 +169,8 @@ export default function Inicio() {
                     </td>
                     <td className={`${TD} font-medium`}>{cliente.nome}</td>
                     <td className={TD}><RamoBadge ramo={seguro.ramo} /></td>
-                    <td className={`${TD} text-slate-600`}>{ix.seguradora.get(seguro.seguradoraId)?.nome}</td>
+                    <td className={`${TD} text-slate-600`}><SeguradoraLink seguradora={ix.seguradora.get(seguro.seguradoraId)} /></td>
+                    <td className={`${TD} text-slate-600`}>{ix.corretor.get(r.corretorId ?? '')?.nome ?? '—'}</td>
                     <td className={TD}><StatusBadge status={r.status} /></td>
                     <td className={TD}>
                       <span className="font-medium text-slate-800">{atividade.texto}</span>
@@ -187,5 +189,23 @@ export default function Inicio() {
 
       <RenovacaoSheet id={aberta} onFechar={() => setAberta(null)} />
     </>
+  )
+}
+
+function SeguradoraLink({ seguradora }: { seguradora?: Seguradora }) {
+  const url = portalSeguradora(seguradora)
+  if (!url) return <>{seguradora?.nome}</>
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title={`Abrir o portal da ${seguradora!.nome}`}
+      className="inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 -mx-2 font-medium text-blue-700 hover:bg-blue-50 hover:underline"
+    >
+      {seguradora!.nome}
+      <span aria-hidden className="text-xs">↗</span>
+    </a>
   )
 }

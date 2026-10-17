@@ -10,8 +10,7 @@ Schema do CRM versionado em `migrations/`:
 | `…000300_cadastro_manual` | Função `cadastrar_seguro`: grava seguro + renovação numa transação (cadastro manual no CRM) |
 | `…000400_importacao_xlsx` | Tabela `modelos_importacao` (mapeamento de colunas por seguradora) e função `importar_lote` (importação inteira numa transação) |
 | `…000500_importar_lote_ramo` | `importar_lote` passa a corrigir ramo e seguradora do seguro numa reimportação |
-| `…000600_etapas_renovacao` | Novas etapas da renovação: `cotada`, `enviada`, `negociando`, `cancelada` (feature [002](../docs/produto/features/002-atividades-por-funcao.md)) |
-| `…000700_atividades_e_usuarios` | Comissão e caminho nas cotações, seguradora nas importações, função e e-mail em `perfis` (com guarda de administradores), histórico de etapas, validação de transições e a função `avancar_renovacao` |
+| `…000600_corretora_dani` | Cadastra a corretora Dani (sigla D) |
 
 Seguradoras e corretores vêm das migrations (dados de referência). `seed.sql` não tem dados.
 

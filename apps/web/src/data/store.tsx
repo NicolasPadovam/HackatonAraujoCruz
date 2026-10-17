@@ -6,7 +6,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { Cliente, Corretor, Db, ModeloImportacao, Renovacao, Seguradora, Seguro, StatusRenovacao } from '../domain/types'
 import { avancar, statusEmAberto, type DadosCotacao } from '../lib/atividades'
 import { supabase } from '../lib/supabase'
-import { gerarDbExemplo } from './mock'
+import { CORRETORES, gerarDbExemplo } from './mock'
 import {
   atualizarCliente, atualizarSeguro, avancarRenovacao as avancarRenovacaoRemoto, cadastrarSeguro, carregarDb, importarLote, inserirCliente, salvarModelo as salvarModeloRemoto,
   salvarRenovacao, type LoteImportacao,
@@ -22,7 +22,9 @@ function carregar(): Db {
     const salvo = localStorage.getItem(CHAVE)
     if (salvo) {
       const db = JSON.parse(salvo) as Db
-      return { ...db, modelos: db.modelos ?? [] } // dados salvos antes dos modelos de importação
+      // Dados salvos antes dos modelos de importação; corretores cadastrados depois (ex.: Dani).
+      const corretores = [...db.corretores, ...CORRETORES.filter((c) => !db.corretores.some((x) => x.id === c.id))]
+      return { ...db, corretores, modelos: db.modelos ?? [] }
     }
   } catch {
     // storage indisponível ou corrompido: usa os dados de exemplo

@@ -1,36 +1,39 @@
-import { AlertTriangle, CheckCircle2, FileSpreadsheet, Link2, Loader2, PencilLine, RefreshCw, Search, Upload, UserPlus } from 'lucide-react'
+import { AlertTriangle, Ban, CheckCircle2, FileSpreadsheet, Link2, Loader2, PencilLine, RefreshCw, Search, ServerCrash, Undo2, Upload, UserPlus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSessao } from '../auth/AuthGate'
 import {
   AvisoPrototipo, BotaoPrimario, BotaoSecundario, Card, INPUT, PageHeader, RAMO, Secao, StatusBadge, TD, TH,
 } from '../components/ui'
-import type { ModeloImportacao, Ramo } from '../domain/types'
+import type { Ramo } from '../domain/types'
 import { useStore } from '../data/store'
-import { CAMPOS, sugerirMapeamento, type CampoDestino, type Mapeamento } from '../importacao/campos'
-import { detectarFormatoData, type FormatoData } from '../importacao/conversao'
-import { cabecalhos, detectarCabecalho, lerArquivo, type Aba } from '../importacao/leitura'
-import { chaveLinha, processar, type Correcao, type LinhaResultado, type Plano, type Resultado } from '../importacao/processar'
+import { LABEL_CAMPO, OBRIGATORIO, type CampoDestino } from '../importacao/campos'
+import { lerArquivo, type Aba } from '../importacao/leitura'
+import { reconhecer, type AbaReconhecida } from '../importacao/modelo'
+import { bloqueia, chaveLinha, processar, type Correcao, type LinhaResultado, type Plano, type Resultado } from '../importacao/processar'
 import { fmtData, hojeIso, mesKey, normalizarNome } from '../lib/format'
 import { cnpjValido, cpfValido, fmtCpfCnpj, somenteDigitos } from '../lib/validacao'
 
 type Passo = 'arquivo' | 'configurar' | 'previa' | 'pronto'
 const PASSOS: Passo[] = ['arquivo', 'configurar', 'previa', 'pronto']
-const NOMES_PASSO = ['Arquivo', 'Tipo e colunas', 'Conferir prévia', 'Concluído']
+const NOMES_PASSO = ['Arquivo', 'Seguradora', 'Conferir prévia', 'Concluído']
 const CORRETORA = 'corretora' // modelo da planilha própria (seguradora vem de uma coluna)
 const POR_PAGINA = 100
+
+/** Ordem das colunas na tabela de preenchimento. */
+const COLUNAS: CampoDestino[] = ['segurado', 'cpfCnpj', 'numeroApolice', 'vencimento', 'seguradora', 'ramo', 'telefone', 'email', 'corretor']
 
 const RESULTADO: Record<Resultado, { label: string; icone: typeof Link2; classe: string }> = {
   novo_cliente: { label: 'Cliente novo', icone: UserPlus, classe: 'text-emerald-700 bg-emerald-50' },
   vinculado: { label: 'Cliente existente', icone: Link2, classe: 'text-marca-600 bg-marca-50' },
   atualiza: { label: 'Atualiza renovação', icone: RefreshCw, classe: 'text-slate-600 bg-slate-100' },
-  pendente: { label: 'Falta CPF ou nome', icone: PencilLine, classe: 'text-orange-700 bg-orange-50' },
+  pendente: { label: 'Falta informação', icone: PencilLine, classe: 'text-orange-700 bg-orange-50' },
   revisao: { label: 'Revisar', icone: Search, classe: 'text-amber-800 bg-amber-50' },
-  erro: { label: 'Erro', icone: AlertTriangle, classe: 'text-rose-700 bg-rose-50' },
+  descartada: { label: 'Descartada', icone: Ban, classe: 'text-slate-500 bg-slate-100' },
 }
 
 export default function Importar() {
-  const { db, importar, salvarModelo } = useStore()
+  const { db, importar } = useStore()
   const { email } = useSessao()
 
   const [passo, setPasso] = useState<Passo>('arquivo')
@@ -40,68 +43,21 @@ export default function Importar() {
   const [erroLeitura, setErroLeitura] = useState<string | null>(null)
 
   const [modeloChave, setModeloChave] = useState<string>(CORRETORA)
-  const [abasSel, setAbasSel] = useState<string[]>([])
-  const [cabManual, setCabManual] = useState<number | null>(null) // linha do cabeçalho (1-based) informada pela pessoa
-  const [mapeamento, setMapeamento] = useState<Mapeamento>({})
-  const [formatoData, setFormatoData] = useState<FormatoData>('dmy')
-  const [ramoPadrao, setRamoPadrao] = useState<Ramo>('residencial')
-  const [corretorPadraoId, setCorretorPadraoId] = useState('')
+  const [abasLidas, setAbasLidas] = useState<AbaReconhecida[]>([])
+  const [naoReconhecido, setNaoReconhecido] = useState<{ aba: string; faltando: string[] }[] | null>(null)
 
   const [resultado, setResultado] = useState<{ linhas: LinhaResultado[]; plano: Plano } | null>(null)
   const [correcoes, setCorrecoes] = useState<Record<string, Correcao>>({})
+  const [descartadas, setDescartadas] = useState<Set<string>>(new Set())
   const [filtro, setFiltro] = useState<Resultado | 'todos'>('todos')
   const [mostrar, setMostrar] = useState(POR_PAGINA)
+  const [mostrarPend, setMostrarPend] = useState(POR_PAGINA)
   const [gravando, setGravando] = useState(false)
   const [erroGravacao, setErroGravacao] = useState<string | null>(null)
-  const [avisoModelo, setAvisoModelo] = useState<string | null>(null)
 
   const idx = PASSOS.indexOf(passo)
   const seguradoraFixa = modeloChave === CORRETORA ? null : db.seguradoras.find((s) => s.id === modeloChave) ?? null
-  const modeloSalvo = db.modelos.find((m) => (m.seguradoraId ?? CORRETORA) === modeloChave)
-
-  const abasEscolhidas = abas.filter((a) => abasSel.includes(a.nome))
-  const linhaCab = (a: Aba) => (cabManual != null ? cabManual - 1 : detectarCabecalho(a.linhas))
-  const primeira = abasEscolhidas[0]
-  const colunas = primeira ? cabecalhos(primeira.linhas, linhaCab(primeira)) : []
-
-  /** Até 2 exemplos de valor de uma coluna (só na tela, nada é salvo). */
-  const exemplos = (coluna?: string) => {
-    if (!primeira || !coluna) return ''
-    const i = colunas.indexOf(coluna)
-    if (i < 0) return ''
-    return primeira.linhas
-      .slice(linhaCab(primeira) + 1)
-      .map((l) => l[i])
-      .filter((v) => v != null && String(v).trim() !== '')
-      .slice(0, 2)
-      .map((v) => (typeof v === 'number' && v > 20000 && v < 80000 ? `${v} (data)` : String(v)))
-      .join(' · ')
-  }
-
-  /** Aplica o modelo escolhido: o mapeamento salvo ou uma sugestão pelos nomes das colunas. */
-  const aplicarModelo = (chave: string, todasAbas: Aba[]) => {
-    setModeloChave(chave)
-    setCabManual(null)
-    const salvo = db.modelos.find((m) => (m.seguradoraId ?? CORRETORA) === chave)
-    const comDados = todasAbas.filter((a) => a.linhas.length > 1).map((a) => a.nome)
-    const sel = chave === CORRETORA ? comDados : comDados.slice(0, 1)
-    setAbasSel(sel)
-    const a = todasAbas.find((x) => x.nome === sel[0])
-    const cab = a ? cabecalhos(a.linhas, detectarCabecalho(a.linhas)) : []
-    // Mapeamento salvo (só colunas que existem neste arquivo), completado pela sugestão automática.
-    const doSalvo: Mapeamento = salvo ? Object.fromEntries(Object.entries(salvo.mapeamento).filter(([, col]) => cab.includes(col))) : {}
-    const usadas = new Set(Object.values(doSalvo))
-    const sugerido = Object.fromEntries(Object.entries(sugerirMapeamento(cab)).filter(([campo, col]) => !(campo in doSalvo) && !usadas.has(col!)))
-    const m: Mapeamento = { ...sugerido, ...doSalvo }
-    if (chave !== CORRETORA) delete m.seguradora
-    setMapeamento(m)
-    // Formato das datas: o salvo, ou detectado pelos valores, ou o costume (planilha da corretora = mm/dd).
-    const iVenc = m.vencimento ? cab.indexOf(m.vencimento) : -1
-    const valores = iVenc >= 0 && a ? a.linhas.slice(detectarCabecalho(a.linhas) + 1).map((l) => l[iVenc]) : []
-    setFormatoData(salvo?.opcoes.formatoData ?? detectarFormatoData(valores) ?? (chave === CORRETORA ? 'mdy' : 'dmy'))
-    setRamoPadrao(salvo?.opcoes.ramoPadrao ?? 'residencial')
-    setCorretorPadraoId(salvo?.opcoes.corretorPadraoId ?? db.corretores[0]?.id ?? '')
-  }
+  const nomeModelo = seguradoraFixa ? `Relatório ${seguradoraFixa.nome}` : 'Planilha da corretora'
 
   const escolherArquivo = async (f: File) => {
     setLendo(true)
@@ -112,6 +68,8 @@ export default function Importar() {
       setArquivo(f)
       setAbas(lidas)
       setCorrecoes({})
+      setDescartadas(new Set())
+      setNaoReconhecido(null)
       // Palpite do tipo: nome da seguradora no nome do arquivo; senão, a planilha da corretora.
       const palavras = new Set(normalizarNome(f.name).split(/[^a-z0-9]+/))
       const seg = db.seguradoras.find((s) =>
@@ -120,7 +78,7 @@ export default function Importar() {
           return palavras.has(nome.replace(/\s+/g, '')) || palavras.has(nome.split(' ')[0]) // "porto", "tokio", "portoseguro"
         }),
       )
-      aplicarModelo(seg?.id ?? CORRETORA, lidas)
+      setModeloChave(seg?.id ?? CORRETORA)
       setPasso('configurar')
     } catch (e) {
       setErroLeitura(`Não consegui ler o arquivo. ${e instanceof Error ? e.message : String(e)}`)
@@ -129,64 +87,60 @@ export default function Importar() {
     }
   }
 
-  const faltando = [
-    !mapeamento.segurado && 'Nome do segurado',
-    !mapeamento.vencimento && 'Vencimento',
-    !seguradoraFixa && !mapeamento.seguradora && 'Seguradora',
-    abasEscolhidas.length === 0 && 'pelo menos uma aba',
-  ].filter(Boolean) as string[]
+  const rodar = (lidas: AbaReconhecida[], corr: Record<string, Correcao>, desc: Set<string>) =>
+    setResultado(processar({ db, abas: lidas, seguradoraFixaId: seguradoraFixa?.id ?? null, correcoes: corr, descartadas: desc }))
 
-  const gerarPrevia = (manterFiltro = false) => {
-    setResultado(
-      processar({
-        db,
-        abas: abasEscolhidas.map((aba) => ({ aba, linhaCabecalho: linhaCab(aba) })),
-        mapeamento,
-        seguradoraFixaId: seguradoraFixa?.id ?? null,
-        formatoData,
-        ramoPadrao,
-        corretorPadraoId,
-        correcoes,
-      }),
-    )
-    if (!manterFiltro) {
-      setFiltro('todos')
-      setMostrar(POR_PAGINA)
+  /** Reconhece o formato pela seguradora escolhida; se não reconhecer, para com erro 500. */
+  const gerarPrevia = () => {
+    const modelo = db.modelos.find((m) => (m.seguradoraId ?? CORRETORA) === modeloChave)
+    const r = reconhecer(abas, modelo, !seguradoraFixa)
+    if (!r.ok) {
+      setNaoReconhecido(r.problemas)
+      return
     }
+    setNaoReconhecido(null)
+    setAbasLidas(r.abas)
+    rodar(r.abas, correcoes, descartadas)
+    setFiltro('todos')
+    setMostrar(POR_PAGINA)
+    setMostrarPend(POR_PAGINA)
     setErroGravacao(null)
     setPasso('previa')
   }
 
+  const atualizarPrevia = (desc = descartadas) => rodar(abasLidas, correcoes, desc)
+
+  const alternarDescarte = (chave: string) => {
+    const desc = new Set(descartadas)
+    if (desc.has(chave)) desc.delete(chave)
+    else desc.add(chave)
+    setDescartadas(desc)
+    atualizarPrevia(desc)
+  }
+
   const conta = useMemo(() => {
-    const c: Record<Resultado, number> = { novo_cliente: 0, vinculado: 0, atualiza: 0, pendente: 0, revisao: 0, erro: 0 }
+    const c: Record<Resultado, number> = { novo_cliente: 0, vinculado: 0, atualiza: 0, pendente: 0, revisao: 0, descartada: 0 }
     resultado?.linhas.forEach((l) => c[l.resultado]++)
     return c
   }, [resultado])
   const validas = conta.novo_cliente + conta.vinculado + conta.atualiza
+  const bloqueadas = conta.pendente + conta.revisao
 
-  /**
-   * Linhas que esperam dados da pessoa. Falta só o CPF: uma entrada por nome (o CPF digitado
-   * vale para todas as linhas do mesmo cliente). Nome com XXX: uma entrada por linha.
-   */
-  const pendentes = useMemo(() => {
-    const grupos = new Map<string, { chave: string; linha: LinhaResultado; outras: number }>()
-    for (const l of resultado?.linhas ?? []) {
-      if (l.resultado !== 'pendente' || !l.pendencias) continue
-      const k = l.pendencias.nome ? chaveLinha(l.aba, l.linha) : `nome:${normalizarNome(l.segurado ?? '')}`
-      const g = grupos.get(k)
-      if (g) g.outras++
-      else grupos.set(k, { chave: chaveLinha(l.aba, l.linha), linha: l, outras: 0 })
-    }
-    return [...grupos.values()]
-  }, [resultado])
+  /** Linhas com algo para preencher ou decidir; as que impedem a importação vêm primeiro. */
+  const paraPreencher = useMemo(
+    () =>
+      (resultado?.linhas ?? [])
+        .filter((l) => l.faltando.length > 0 || bloqueia(l) || l.resultado === 'descartada')
+        .sort((a, b) => Number(bloqueia(b)) - Number(bloqueia(a))),
+    [resultado],
+  )
 
   const corrigir = (chave: string, campo: keyof Correcao, valor: string) =>
-    setCorrecoes((c) => ({ ...c, [chave]: { ...c[chave], [campo]: valor } }))
+    setCorrecoes((c) => ({ ...c, [chave]: { ...c[chave], [campo]: valor || undefined } }))
 
   const confirmar = async () => {
-    if (!resultado || !arquivo) return
+    if (!resultado || !arquivo || bloqueadas > 0) return
     const vencs = resultado.linhas.filter((l) => l.renovacaoId && l.vencimento).map((l) => l.vencimento!).sort()
-    const nomeModelo = seguradoraFixa ? `Relatório ${seguradoraFixa.nome}` : 'Planilha da corretora'
     setGravando(true)
     setErroGravacao(null)
     try {
@@ -195,19 +149,19 @@ export default function Importar() {
           id: crypto.randomUUID(),
           modelo: nomeModelo,
           arquivoNome: arquivo.name,
-          aba: abasSel.join(', '),
+          aba: abasLidas.map((a) => a.aba.nome).join(', '),
           mesReferencia: mesKey(vencs[0] ?? hojeIso()),
           seguradoraId: seguradoraFixa?.id ?? null,
           importadoPor: email ?? 'Você',
           importadoEm: new Date().toISOString(),
           linhasOk: validas,
-          linhasErro: conta.erro,
-          linhasRevisao: conta.revisao + conta.pendente,
+          linhasErro: conta.descartada,
+          linhasRevisao: 0,
         },
         ...resultado.plano,
         linhas: resultado.linhas.map((l) => ({
           dadosBrutos: l.dadosBrutos,
-          status: l.resultado === 'erro' ? 'erro' : l.resultado === 'revisao' || l.resultado === 'pendente' ? 'revisao' : 'ok',
+          status: l.resultado === 'descartada' ? 'erro' : 'ok',
           mensagem: l.mensagens.join(' ') || undefined,
           renovacaoId: l.renovacaoId,
         })),
@@ -216,20 +170,6 @@ export default function Importar() {
       setErroGravacao(`Nada foi gravado. ${e instanceof Error ? e.message : String(e)}`)
       setGravando(false)
       return
-    }
-    // Lembra o mapeamento para o próximo mês (falhar aqui não desfaz a importação).
-    const modelo: ModeloImportacao = {
-      id: modeloSalvo?.id ?? crypto.randomUUID(),
-      nome: nomeModelo,
-      seguradoraId: seguradoraFixa?.id ?? null,
-      mapeamento: mapeamento as Record<string, string>,
-      opcoes: { formatoData, ramoPadrao, corretorPadraoId },
-    }
-    try {
-      await salvarModelo(modelo, !modeloSalvo)
-      setAvisoModelo(null)
-    } catch (e) {
-      setAvisoModelo(`A importação foi gravada, mas o mapeamento não foi lembrado: ${e instanceof Error ? e.message : String(e)}`)
     }
     setGravando(false)
     setPasso('pronto')
@@ -241,11 +181,79 @@ export default function Importar() {
     setAbas([])
     setResultado(null)
     setCorrecoes({})
+    setDescartadas(new Set())
+    setNaoReconhecido(null)
     setErroGravacao(null)
-    setAvisoModelo(null)
   }
 
   const visiveis = (resultado?.linhas ?? []).filter((l) => filtro === 'todos' || l.resultado === filtro)
+
+  /** Célula da tabela de preenchimento: campo de digitação se faltar, senão o valor encontrado. */
+  const celulaCampo = (l: LinhaResultado, campo: CampoDestino) => {
+    const chave = chaveLinha(l.aba, l.linha)
+    const c = correcoes[chave] ?? {}
+    const obrig = OBRIGATORIO.has(campo)
+    const desligado = l.resultado === 'descartada'
+    if (!l.faltando.includes(campo)) {
+      const v =
+        campo === 'segurado' ? l.segurado
+        : campo === 'cpfCnpj' ? (l.cpfCnpj ? fmtCpfCnpj(l.cpfCnpj) : 'Já cadastrado')
+        : campo === 'numeroApolice' ? l.numeroApolice
+        : campo === 'vencimento' ? (l.vencimento ? fmtData(l.vencimento) : undefined)
+        : campo === 'seguradora' ? l.seguradora
+        : campo === 'ramo' ? (l.ramo ? RAMO[l.ramo].label : undefined)
+        : campo === 'telefone' ? l.telefone
+        : campo === 'email' ? l.email
+        : l.corretor
+      return <span className="text-sm text-slate-600">{v ?? '—'}</span>
+    }
+    const anel = obrig ? 'ring-rose-300' : ''
+    const rotulo = `${LABEL_CAMPO[campo]} da linha ${l.linha}`
+    const ph = obrig ? 'Obrigatório' : 'Opcional'
+    switch (campo) {
+      case 'segurado':
+        return <input className={`${INPUT} ${anel}`} disabled={desligado} placeholder="Nome correto" aria-label={rotulo} value={c.nome ?? l.nomePlanilha ?? ''} onChange={(e) => corrigir(chave, 'nome', e.target.value)} />
+      case 'cpfCnpj': {
+        const doc = somenteDigitos(c.cpfCnpj ?? '')
+        const invalido = doc.length >= 11 && !(doc.length === 11 ? cpfValido(doc) : doc.length === 14 && cnpjValido(doc))
+        return (
+          <>
+            <input className={`${INPUT} tabular-nums ${anel}`} disabled={desligado} placeholder="000.000.000-00" inputMode="numeric" maxLength={18} aria-label={rotulo} value={c.cpfCnpj ?? ''} onChange={(e) => corrigir(chave, 'cpfCnpj', fmtCpfCnpj(e.target.value))} />
+            {invalido && <span className="mt-1 block text-xs text-rose-600">CPF/CNPJ inválido</span>}
+          </>
+        )
+      }
+      case 'numeroApolice':
+        return <input className={`${INPUT} ${anel}`} disabled={desligado} placeholder={ph} aria-label={rotulo} value={c.numeroApolice ?? ''} onChange={(e) => corrigir(chave, 'numeroApolice', e.target.value)} />
+      case 'vencimento':
+        return <input type="date" className={`${INPUT} ${anel}`} disabled={desligado} aria-label={rotulo} value={c.vencimento ?? ''} onChange={(e) => corrigir(chave, 'vencimento', e.target.value)} />
+      case 'seguradora':
+        return (
+          <select className={`${INPUT} ${anel}`} disabled={desligado} aria-label={rotulo} value={c.seguradoraId ?? ''} onChange={(e) => corrigir(chave, 'seguradoraId', e.target.value)}>
+            <option value="">Escolha…</option>
+            {db.seguradoras.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+          </select>
+        )
+      case 'ramo':
+        return (
+          <select className={`${INPUT} ${anel}`} disabled={desligado} aria-label={rotulo} value={c.ramo ?? ''} onChange={(e) => corrigir(chave, 'ramo', e.target.value as Ramo)}>
+            <option value="">Escolha…</option>
+            {(Object.keys(RAMO) as Ramo[]).map((r) => <option key={r} value={r}>{RAMO[r].label}</option>)}
+          </select>
+        )
+      case 'telefone':
+        return <input className={INPUT} disabled={desligado} placeholder={ph} inputMode="tel" aria-label={rotulo} value={c.telefone ?? ''} onChange={(e) => corrigir(chave, 'telefone', e.target.value)} />
+      case 'email':
+        return <input type="email" className={INPUT} disabled={desligado} placeholder={ph} aria-label={rotulo} value={c.email ?? ''} onChange={(e) => corrigir(chave, 'email', e.target.value)} />
+      case 'corretor':
+        return (
+          <select className={INPUT} disabled={desligado} aria-label={rotulo} value={c.corretorId ?? ''} onChange={(e) => corrigir(chave, 'corretorId', e.target.value)}>
+            <option value="">Opcional</option>
+            {db.corretores.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
+          </select>
+        )
+    }
+  }
 
   return (
     <>
@@ -287,8 +295,8 @@ export default function Importar() {
               <div className="rounded-lg bg-white p-4 text-sm text-slate-600 ring-1 ring-slate-200">
                 <p className="mb-1 font-medium text-slate-800">Dois usos</p>
                 <ul className="list-disc space-y-1 pl-5">
-                  <li><strong>Planilha da corretora</strong>: a de renovações de vocês, uma aba por mês. Dá para importar várias abas de uma vez (carga inicial).</li>
-                  <li><strong>Relatório da seguradora</strong>: o arquivo exportado com as renovações dos próximos 30 dias. Na primeira vez você indica as colunas; nas próximas, o sistema lembra.</li>
+                  <li><strong>Planilha da corretora</strong>: a de renovações de vocês, uma aba por mês. Todas as abas com dados são importadas.</li>
+                  <li><strong>Relatório da seguradora</strong>: o arquivo exportado com as renovações dos próximos 30 dias. Basta escolher a seguradora: o sistema reconhece as colunas.</li>
                 </ul>
               </div>
             </div>
@@ -316,7 +324,7 @@ export default function Importar() {
                           <td className={`${TD} whitespace-nowrap`}>
                             <span className="text-emerald-700">{imp.linhasOk} ok</span>
                             {imp.linhasRevisao > 0 && <span className="ml-2 text-amber-700">{imp.linhasRevisao} revisar</span>}
-                            {imp.linhasErro > 0 && <span className="ml-2 text-rose-600">{imp.linhasErro} erro</span>}
+                            {imp.linhasErro > 0 && <span className="ml-2 text-rose-600">{imp.linhasErro} descartada(s)</span>}
                           </td>
                         </tr>
                       ))}
@@ -329,7 +337,7 @@ export default function Importar() {
         )}
 
         {passo === 'configurar' && arquivo && (
-          <div className="space-y-5">
+          <div className="max-w-xl space-y-5">
             <Card className="flex items-center gap-3 !py-3">
               <FileSpreadsheet className="size-5 text-emerald-600" />
               <span className="text-sm font-medium">{arquivo.name}</span>
@@ -337,124 +345,34 @@ export default function Importar() {
               <button onClick={reiniciar} className="ml-auto text-sm text-marca-600 hover:underline">Trocar arquivo</button>
             </Card>
 
-            <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-start gap-6">
-              <div className="space-y-5">
-                <Card className="space-y-4">
-                  <label className="block space-y-1">
-                    <span className="text-sm font-medium text-slate-700">Que arquivo é este?</span>
-                    <select className={INPUT} value={modeloChave} onChange={(e) => aplicarModelo(e.target.value, abas)}>
-                      <option value={CORRETORA}>Planilha da corretora (seguradora em uma coluna)</option>
-                      <optgroup label="Relatório de renovações da seguradora">
-                        {db.seguradoras.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                      </optgroup>
-                    </select>
-                    <span className="block text-xs text-slate-500">
-                      {modeloSalvo ? 'Usando o mapeamento salvo da última importação deste tipo.' : 'Primeira vez com este tipo: confira as colunas ao lado. O mapeamento fica salvo.'}
-                    </span>
-                  </label>
+            <Card className="space-y-4">
+              <label className="block space-y-1">
+                <span className="text-sm font-medium text-slate-700">Que arquivo é este?</span>
+                <select className={INPUT} value={modeloChave} onChange={(e) => { setModeloChave(e.target.value); setNaoReconhecido(null) }}>
+                  <option value={CORRETORA}>Planilha da corretora (seguradora em uma coluna)</option>
+                  <optgroup label="Relatório de renovações da seguradora">
+                    {db.seguradoras.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                  </optgroup>
+                </select>
+              </label>
 
-                  <div className="space-y-1">
-                    <span className="text-sm font-medium text-slate-700">Abas a importar</span>
-                    <div className="max-h-56 space-y-1 overflow-y-auto rounded-lg p-2 ring-1 ring-slate-200">
-                      {abas.map((a) => (
-                        <label key={a.nome} className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={abasSel.includes(a.nome)}
-                            onChange={(e) => setAbasSel((sel) => (e.target.checked ? [...sel, a.nome] : sel.filter((x) => x !== a.nome)))}
-                          />
-                          {a.nome} <span className="text-slate-400">({Math.max(0, a.linhas.length - linhaCab(a) - 1)} linhas)</span>
-                        </label>
-                      ))}
-                    </div>
-                    {abas.length > 1 && (
-                      <div className="flex gap-3 text-xs">
-                        <button className="text-marca-600 hover:underline" onClick={() => setAbasSel(abas.map((a) => a.nome))}>Marcar todas</button>
-                        <button className="text-marca-600 hover:underline" onClick={() => setAbasSel([])}>Desmarcar</button>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="block space-y-1">
-                      <span className="text-sm font-medium text-slate-700">Linha do cabeçalho</span>
-                      <input
-                        type="number"
-                        min={1}
-                        className={INPUT}
-                        value={primeira ? linhaCab(primeira) + 1 : ''}
-                        onChange={(e) => setCabManual(Math.max(1, Number(e.target.value) || 1))}
-                      />
-                    </label>
-                    <label className="block space-y-1">
-                      <span className="text-sm font-medium text-slate-700">Datas em texto</span>
-                      <select className={INPUT} value={formatoData} onChange={(e) => setFormatoData(e.target.value as FormatoData)}>
-                        <option value="dmy">dia/mês/ano</option>
-                        <option value="mdy">mês/dia/ano</option>
-                      </select>
-                    </label>
-                    <label className="block space-y-1">
-                      <span className="text-sm font-medium text-slate-700">Ramo, se não houver coluna</span>
-                      <select className={INPUT} value={ramoPadrao} onChange={(e) => setRamoPadrao(e.target.value as Ramo)}>
-                        {(Object.keys(RAMO) as Ramo[]).map((r) => <option key={r} value={r}>{RAMO[r].label}</option>)}
-                      </select>
-                    </label>
-                    <label className="block space-y-1">
-                      <span className="text-sm font-medium text-slate-700">Corretor, se não houver</span>
-                      <select className={INPUT} value={corretorPadraoId} onChange={(e) => setCorretorPadraoId(e.target.value)}>
-                        {db.corretores.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                      </select>
-                    </label>
-                  </div>
-                </Card>
-              </div>
-
-              <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/70">
-                <div className="border-b border-slate-200 px-4 py-3">
-                  <p className="font-medium">Colunas da planilha</p>
-                  <p className="text-sm text-slate-500">Indique onde está cada informação. Só nome e vencimento são obrigatórios; o resto é aproveitado quando existir.</p>
+              {naoReconhecido && (
+                <div role="alert" className="space-y-2 rounded-lg bg-rose-50 px-4 py-3 text-sm text-rose-900 ring-1 ring-rose-200">
+                  <p className="flex items-center gap-2 font-semibold"><ServerCrash className="size-4" /> Erro 500: formato de planilha não reconhecido</p>
+                  <p>
+                    O sistema não sabe ler este arquivo como <strong>{nomeModelo}</strong>. Nada foi importado.
+                    <strong> Chame o administrador do sistema</strong> e envie o arquivo para ele configurar este formato.
+                  </p>
+                  <ul className="list-disc pl-5 text-xs text-rose-800">
+                    {naoReconhecido.map((p) => <li key={p.aba}>Aba “{p.aba}”: não encontrei {p.faltando.join(' e ')}.</li>)}
+                  </ul>
                 </div>
-                <table className="w-full">
-                  <thead className="bg-slate-50">
-                    <tr><th className={TH}>Informação no CRM</th><th className={TH}>Coluna na planilha</th><th className={TH}>Exemplo (1ª aba)</th></tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {CAMPOS.map((def) => {
-                      const fixo = def.campo === 'seguradora' && seguradoraFixa
-                      const obrigatorio = def.obrigatorio || (def.campo === 'seguradora' && !seguradoraFixa)
-                      return (
-                        <tr key={def.campo}>
-                          <td className={`${TD} w-64`}>
-                            <span className="font-medium">{def.label}</span>
-                            {obrigatorio && <span className="text-rose-500"> *</span>}
-                            {def.dica && <span className="block text-xs text-slate-400">{def.dica}</span>}
-                          </td>
-                          <td className={`${TD} w-64`}>
-                            {fixo ? (
-                              <span className="text-sm text-slate-600">Fixo: {seguradoraFixa.nome}</span>
-                            ) : (
-                              <select
-                                className={`${INPUT} ${obrigatorio && !mapeamento[def.campo] ? 'ring-rose-300' : ''}`}
-                                value={mapeamento[def.campo] ?? ''}
-                                onChange={(e) => setMapeamento((m) => ({ ...m, [def.campo as CampoDestino]: e.target.value || undefined }))}
-                              >
-                                <option value="">— não usar —</option>
-                                {colunas.map((c) => <option key={c} value={c}>{c}</option>)}
-                              </select>
-                            )}
-                          </td>
-                          <td className={`${TD} max-w-56 truncate text-xs text-slate-500`}>{fixo ? '' : exemplos(mapeamento[def.campo])}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-                <div className="flex items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3">
-                  <span className="text-sm text-rose-700">{faltando.length > 0 && `Falta: ${faltando.join(', ')}.`}</span>
-                  <BotaoPrimario disabled={faltando.length > 0} onClick={() => gerarPrevia()}>Gerar prévia</BotaoPrimario>
-                </div>
+              )}
+
+              <div className="flex justify-end">
+                <BotaoPrimario onClick={gerarPrevia}>Gerar prévia</BotaoPrimario>
               </div>
-            </div>
+            </Card>
           </div>
         )}
 
@@ -480,72 +398,55 @@ export default function Importar() {
               })}
             </div>
 
-            {pendentes.length > 0 && (
+            {bloqueadas > 0 && (
+              <p role="alert" className="flex items-start gap-2 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-900 ring-1 ring-rose-200">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  <strong>{bloqueadas} linha(s) ainda não podem ser importadas.</strong> Nenhuma linha fica de fora sem você decidir:
+                  complete as informações obrigatórias abaixo ou clique em <strong>Descartar</strong> naquelas que de fato não são renovações.
+                  A importação só é liberada quando todas estiverem resolvidas.
+                </span>
+              </p>
+            )}
+
+            {paraPreencher.length > 0 && (
               <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-orange-200">
                 <div className="border-b border-orange-200 bg-orange-50 px-4 py-3">
-                  <p className="font-medium text-orange-900">Complete os dados de {conta.pendente} linha(s)</p>
+                  <p className="font-medium text-orange-900">Complete os dados de {paraPreencher.length} linha(s)</p>
                   <p className="text-sm text-orange-800">
-                    Sem CPF/CNPJ, o cliente não entra no sistema: digite o documento (basta uma vez por cliente).
-                    Nome com <strong>XXX</strong> veio mascarado pela seguradora: escreva o nome correto.
-                    Depois clique em <strong>Atualizar prévia</strong>. Linhas não completadas não são gravadas.
+                    Campos com borda vermelha são obrigatórios; os demais são opcionais. O CPF/CNPJ digitado vale para as outras linhas do mesmo nome.
+                    Nome com <strong>XXX</strong> veio mascarado pela seguradora. Depois clique em <strong>Atualizar prévia</strong>.
                   </p>
                 </div>
-                <div className="max-h-[28rem] overflow-y-auto">
-                  <table className="w-full">
-                    <thead className="sticky top-0 bg-slate-50">
+                <div className="max-h-[32rem] overflow-auto">
+                  <table className="w-full min-w-[90rem]">
+                    <thead className="sticky top-0 z-10 bg-slate-50">
                       <tr>
                         <th className={TH}>Aba · linha</th>
-                        <th className={TH}>Nome na planilha</th>
-                        <th className={TH}>Nome do cliente</th>
-                        <th className={TH}>CPF/CNPJ</th>
-                        <th className={TH}>Seguradora · vencimento</th>
+                        {COLUNAS.map((c) => (
+                          <th key={c} className={TH}>{LABEL_CAMPO[c]}{OBRIGATORIO.has(c) && <span className="text-rose-500"> *</span>}</th>
+                        ))}
+                        <th className={TH}></th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {pendentes.map(({ chave, linha: l, outras }) => {
-                        const c = correcoes[chave] ?? {}
-                        const doc = somenteDigitos(c.cpfCnpj ?? '')
-                        const docInvalido = doc.length > 0 && !(doc.length === 11 ? cpfValido(doc) : doc.length === 14 && cnpjValido(doc))
+                      {paraPreencher.slice(0, mostrarPend).map((l) => {
+                        const chave = chaveLinha(l.aba, l.linha)
+                        const descartada = l.resultado === 'descartada'
                         return (
-                          <tr key={chave}>
+                          <tr key={chave} className={descartada ? 'opacity-50' : bloqueia(l) ? 'bg-orange-50/30' : ''}>
                             <td className={`${TD} whitespace-nowrap text-xs text-slate-400`}>
                               {l.aba} · {l.linha}
-                              {outras > 0 && <span className="block">+{outras} linha(s) do mesmo nome</span>}
+                              {l.mensagens.map((m) => <span key={m} className="mt-1 block max-w-48 whitespace-normal text-slate-500">{m}</span>)}
                             </td>
-                            <td className={`${TD} text-slate-600`}>{l.nomePlanilha}</td>
-                            <td className={`${TD} w-80`}>
-                              {l.pendencias?.nome ? (
-                                <input
-                                  className={`${INPUT} ${c.nome && /x{3}/i.test(c.nome) ? 'ring-rose-300' : ''}`}
-                                  placeholder="Nome correto"
-                                  aria-label={`Nome correto da linha ${l.linha}`}
-                                  value={c.nome ?? l.nomePlanilha ?? ''}
-                                  onChange={(e) => corrigir(chave, 'nome', e.target.value)}
-                                />
-                              ) : (
-                                <span className="font-medium">{l.segurado}</span>
-                              )}
-                            </td>
-                            <td className={`${TD} w-56`}>
-                              {l.pendencias?.cpf ? (
-                                <>
-                                  <input
-                                    className={`${INPUT} tabular-nums ${docInvalido && doc.length >= 11 ? 'ring-rose-300' : ''}`}
-                                    placeholder="000.000.000-00"
-                                    inputMode="numeric"
-                                    maxLength={18}
-                                    aria-label={`CPF ou CNPJ da linha ${l.linha}`}
-                                    value={c.cpfCnpj ?? ''}
-                                    onChange={(e) => corrigir(chave, 'cpfCnpj', fmtCpfCnpj(e.target.value))}
-                                  />
-                                  {docInvalido && doc.length >= 11 && <span className="mt-1 block text-xs text-rose-600">CPF/CNPJ inválido</span>}
-                                </>
-                              ) : (
-                                <span className="tabular-nums text-slate-600">{l.cpfCnpj ? fmtCpfCnpj(l.cpfCnpj) : 'Já cadastrado'}</span>
-                              )}
-                            </td>
-                            <td className={`${TD} whitespace-nowrap text-sm text-slate-600`}>
-                              {l.seguradora} · {l.vencimento ? fmtData(l.vencimento) : '—'}
+                            {COLUNAS.map((c) => <td key={c} className={`${TD} min-w-40 align-top`}>{celulaCampo(l, c)}</td>)}
+                            <td className={`${TD} align-top`}>
+                              <button
+                                onClick={() => alternarDescarte(chave)}
+                                className="flex items-center gap-1 whitespace-nowrap text-xs font-medium text-slate-500 hover:text-rose-700"
+                              >
+                                {descartada ? <><Undo2 className="size-3.5" /> Desfazer</> : <><Ban className="size-3.5" /> Descartar</>}
+                              </button>
                             </td>
                           </tr>
                         )
@@ -553,16 +454,20 @@ export default function Importar() {
                     </tbody>
                   </table>
                 </div>
+                {paraPreencher.length > mostrarPend && (
+                  <button onClick={() => setMostrarPend((n) => n + POR_PAGINA)} className="w-full border-t border-slate-200 py-2.5 text-sm text-marca-600 hover:bg-slate-50">
+                    Mostrar mais ({paraPreencher.length - mostrarPend} restantes)
+                  </button>
+                )}
                 <div className="flex justify-end border-t border-slate-200 bg-slate-50 px-4 py-3">
-                  <BotaoPrimario onClick={() => gerarPrevia(true)}><RefreshCw className="size-4" /> Atualizar prévia</BotaoPrimario>
+                  <BotaoPrimario onClick={() => atualizarPrevia()}><RefreshCw className="size-4" /> Atualizar prévia</BotaoPrimario>
                 </div>
               </div>
             )}
 
             <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/70">
               <div className="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
-                {resultado.linhas.length} linhas lidas. Clientes são reconhecidos pelo CPF/CNPJ e, sem ele, pelo nome (mesmo nome = mesmo cliente).
-                Linhas com <strong>erro</strong>, para <strong>revisar</strong> ou com <strong>CPF/nome faltando</strong> não são gravadas.
+                {resultado.linhas.length} linhas lidas de {abasLidas.length} aba(s). Clientes são reconhecidos pelo CPF/CNPJ e, sem ele, pelo nome (mesmo nome = mesmo cliente).
               </div>
               <table className="w-full">
                 <thead className="bg-slate-50">
@@ -570,6 +475,7 @@ export default function Importar() {
                     <th className={TH}>Aba · linha</th>
                     <th className={TH}>Segurado</th>
                     <th className={TH}>CPF/CNPJ</th>
+                    <th className={TH}>Apólice</th>
                     <th className={TH}>Seguradora</th>
                     <th className={TH}>Ramo</th>
                     <th className={TH}>Vencimento</th>
@@ -581,16 +487,22 @@ export default function Importar() {
                   {visiveis.slice(0, mostrar).map((l) => {
                     const R = RESULTADO[l.resultado]
                     return (
-                      <tr key={`${l.aba}-${l.linha}`} className={l.resultado === 'erro' ? 'bg-rose-50/40' : l.resultado === 'revisao' ? 'bg-amber-50/40' : l.resultado === 'pendente' ? 'bg-orange-50/40' : ''}>
+                      <tr key={`${l.aba}-${l.linha}`} className={l.resultado === 'revisao' ? 'bg-amber-50/40' : l.resultado === 'pendente' ? 'bg-orange-50/40' : ''}>
                         <td className={`${TD} whitespace-nowrap text-xs text-slate-400`}>{l.aba} · {l.linha}</td>
                         <td className={`${TD} font-medium`}>{l.segurado ?? '—'}</td>
                         <td className={`${TD} whitespace-nowrap tabular-nums text-slate-600`}>{l.cpfCnpj ? fmtCpfCnpj(l.cpfCnpj) : '—'}</td>
+                        <td className={`${TD} text-slate-600`}>{l.numeroApolice ?? '—'}</td>
                         <td className={`${TD} text-slate-600`}>{l.seguradora ?? '—'}</td>
                         <td className={`${TD} text-slate-600`}>{l.ramo ? RAMO[l.ramo].label : '—'}</td>
                         <td className={`${TD} whitespace-nowrap tabular-nums`}>{l.vencimento ? fmtData(l.vencimento) : '—'}</td>
                         <td className={TD}>{l.status ? <StatusBadge status={l.status} /> : '—'}</td>
                         <td className={TD}>
                           <span className={`whitespace-nowrap rounded-md px-1.5 py-0.5 text-xs font-medium ${R.classe}`}>{R.label}</span>
+                          {l.resultado === 'pendente' && (
+                            <span className="mt-1 block text-xs text-orange-800">
+                              Falta: {l.faltando.filter((c) => OBRIGATORIO.has(c)).map((c) => LABEL_CAMPO[c]).join(', ')}
+                            </span>
+                          )}
                           {l.mensagens.map((m) => <span key={m} className="mt-1 block text-xs text-slate-500">{m}</span>)}
                         </td>
                       </tr>
@@ -605,11 +517,11 @@ export default function Importar() {
               )}
               {erroGravacao && <p role="alert" className="border-t border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">{erroGravacao}</p>}
               <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
-                {conta.pendente > 0 && (
-                  <span className="mr-auto text-sm text-orange-800">{conta.pendente} linha(s) sem CPF ou com nome XXX ficarão de fora.</span>
+                {bloqueadas > 0 && (
+                  <span className="mr-auto text-sm text-rose-800">Resolva ou descarte {bloqueadas} linha(s) para liberar a importação.</span>
                 )}
-                <BotaoSecundario onClick={() => setPasso('configurar')} disabled={gravando}>Voltar e ajustar colunas</BotaoSecundario>
-                <BotaoPrimario onClick={() => void confirmar()} disabled={gravando || validas === 0}>
+                <BotaoSecundario onClick={() => setPasso('configurar')} disabled={gravando}>Voltar</BotaoSecundario>
+                <BotaoPrimario onClick={() => void confirmar()} disabled={gravando || bloqueadas > 0 || validas === 0}>
                   {gravando && <Loader2 className="size-4 animate-spin" />} Importar {validas} linhas
                 </BotaoPrimario>
               </div>
@@ -624,12 +536,11 @@ export default function Importar() {
               <p className="text-lg font-semibold">Importação gravada</p>
               <p className="text-sm text-slate-500">
                 {conta.novo_cliente} clientes novos · {conta.vinculado} em clientes existentes · {conta.atualiza} renovações atualizadas
-                {conta.erro + conta.revisao + conta.pendente > 0 && ` · ${conta.erro + conta.revisao + conta.pendente} linhas não gravadas`}
+                {conta.descartada > 0 && ` · ${conta.descartada} linha(s) descartada(s) por você`}
               </p>
             </div>
-            {avisoModelo && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 ring-1 ring-amber-200">{avisoModelo}</p>}
             <div className="flex justify-center gap-2">
-              <button onClick={reiniciar} className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium hover:bg-slate-200">Importar outra aba</button>
+              <button onClick={reiniciar} className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium hover:bg-slate-200">Importar outro arquivo</button>
               <Link to="/renovacoes" className="rounded-lg bg-marca-700 px-4 py-2 text-sm font-semibold text-white hover:bg-marca-600">Ver renovações</Link>
             </div>
           </Card>

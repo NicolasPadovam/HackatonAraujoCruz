@@ -165,7 +165,7 @@ export default function ClienteFicha() {
                           {para && para !== de && <><ArrowRight className="size-3.5 text-violet-500" /><span className="font-medium text-violet-700">{para}</span></>}
                         </span>
                       </td>
-                      <td className={`${TD} text-slate-600`}>{ix.corretor.get(r.corretorId)?.nome}</td>
+                      <td className={`${TD} text-slate-600`}>{ix.corretor.get(r.corretorId ?? '')?.nome ?? '—'}</td>
                       <td className={TD}><StatusBadge status={r.status} /></td>
                       <td className={`${TD} text-slate-600`}>
                         {atividadeDe(r) ? <>{atividadeDe(r)!.texto} <span className="text-xs text-slate-400">· {FUNCAO_LABEL[atividadeDe(r)!.funcao]}</span></> : '—'}

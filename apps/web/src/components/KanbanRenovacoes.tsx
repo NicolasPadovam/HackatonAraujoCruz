@@ -107,10 +107,7 @@ export function KanbanRenovacoes({ itens, onAbrir }: { itens: ItemKanban[]; onAb
                         <span className={faixa ? FAIXA[faixa].texto : 'text-slate-400'}>{prazoLabel(r.vencimento)}</span>
                       )}
                     </div>
-                    <p className="mt-1.5 text-xs text-slate-400">
-                      {ix.corretor.get(r.corretorId)?.nome}
-                      {atividade && <span className="text-marca-600"> · {atividade.texto}</span>}
-                    </p>
+                    <p className="mt-1.5 text-xs text-slate-400">{ix.corretor.get(r.corretorId ?? '')?.nome ?? '—'}</p>
                   </li>
                 )
               })}

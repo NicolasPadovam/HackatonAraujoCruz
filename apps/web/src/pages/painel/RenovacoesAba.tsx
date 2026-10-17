@@ -58,7 +58,7 @@ export default function RenovacoesAba({ periodo }: { periodo: Periodo }) {
             <BarrasH
               max={maiorCarga}
               linhas={carga.map((c) => ({
-                label: ix.corretor.get(c.corretorId)?.nome ?? c.corretorId,
+                label: ix.corretor.get(c.corretorId)?.nome ?? 'Sem corretor',
                 valor: c.total,
                 detalhe: `${c.total} (${c.pendente} pendentes · ${c.andamento} em andamento)`,
               }))}
@@ -103,7 +103,7 @@ export default function RenovacoesAba({ periodo }: { periodo: Periodo }) {
                       <td className={`${TD} ${faixa ? FAIXA[faixa].texto : 'text-slate-500'}`}>
                         {prazoLabel(r.vencimento)}
                       </td>
-                      <td className={TD}>{iniciais(ix.corretor.get(r.corretorId)?.nome ?? '—')}</td>
+                      <td className={TD}>{iniciais(ix.corretor.get(r.corretorId ?? '')?.nome ?? '—')}</td>
                       <td className={TD}><StatusBadge status={r.status} /></td>
                     </tr>
                   )

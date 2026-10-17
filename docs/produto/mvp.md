@@ -50,7 +50,7 @@ Recomendação: importar **todos os ramos** da planilha, não só residencial. O
 | B Nome do Segurado | — | `clientes.nome` | **Sem CPF**: deduplicação por nome normalizado |
 | C Ramo | Auto, Residencial, Vida | `seguros.ramo` | |
 | D Vigência | 2/4/2026 | `renovacoes.vencimento` | Formato **M/D/AAAA** (EUA); tratar com cuidado |
-| E Corretor | R, C | `renovacoes.corretor_id` | R = Renata, C = Carlos |
+| E Corretor | R, C, D | `renovacoes.corretor_id` | R = Renata, C = Carlos, D = Dani |
 | F Renovada | ✅ / ❌ | `renovacoes.status` | ✅ = renovada, ❌ = não renovada, vazio = pendente |
 | G Cotada | TRUE | `renovacoes.cotada` | |
 | H Prêmio Líquido | (vazio) | `seguros.premio_liquido` | Opcional |
@@ -68,7 +68,7 @@ Recomendação: importar **todos os ramos** da planilha, não só residencial. O
 
 - Planilhas mensais: são **abas de um mesmo arquivo**. No upload, o usuário escolhe a aba (mês) a importar.
 - Mesmo nome = mesmo cliente. Quando um nome aparece em várias linhas, é o mesmo cliente com seguros de ramos diferentes (ex.: uma empresa com auto e residencial). A deduplicação por nome vincula essas linhas ao mesmo cadastro.
-- Corretores: R = Renata, C = Carlos.
+- Corretores: R = Renata, C = Carlos, D = Dani.
 - Comissão: registrada em %.
 - Planilha de renovações: uma por mês.
 - Base de clientes: em stand-by. Está sendo carregada direto no Supabase.

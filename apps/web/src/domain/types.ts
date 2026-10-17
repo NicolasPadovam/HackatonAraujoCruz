@@ -75,7 +75,7 @@ export interface Renovacao {
   id: string
   seguroId: string
   vencimento: string // ISO yyyy-mm-dd
-  corretorId: string
+  corretorId?: string
   status: StatusRenovacao
   cotada: boolean
   seguradoraFechadaId?: string
