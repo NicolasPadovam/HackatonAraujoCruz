@@ -2,7 +2,7 @@
 
 Protótipo navegável do CRM para **desktop** (menu lateral, tabelas, painel de detalhes à direita). Serve para o time ver a cara do produto e decidir as próximas features. Escopo: [docs/produto/mvp.md](../../docs/produto/mvp.md).
 
-**Todos os dados são fictícios**, gerados em [src/data/mock.ts](src/data/mock.ts). Eles ficam só no navegador (localStorage). Nada vai para servidor.
+**No modo demonstração todos os dados são fictícios**, gerados em [src/data/mock.ts](src/data/mock.ts). No modo demonstração eles ficam só no navegador (localStorage). Nada vai para servidor.
 
 ## Rodar
 
@@ -14,13 +14,18 @@ npm run dev
 
 Abra http://localhost:5173.
 
-## Para ligar ao Supabase
+## Modos de funcionamento
 
-1. As telas só falam com [src/data/store.tsx](src/data/store.tsx), por meio de `useStore()` (dados e ações) e `useIndices()` (mapas por id). Troque o estado local por consultas ao Supabase mantendo essas assinaturas, e as páginas não precisam mudar.
-2. As ações de escrita hoje são `atualizarRenovacao(id, patch)` e `registrarImportacao(importacao, novos)`.
-3. Os tipos em [src/domain/types.ts](src/domain/types.ts) estão em camelCase; as tabelas propostas em [modelo-dados.md](../../docs/arquitetura/modelo-dados.md) estão em snake_case. Gere os tipos do Supabase (`supabase gen types typescript`) e converta, ou ajuste estes tipos.
-4. A tabela de clientes que está sendo carregada no Supabase deve ser a mesma usada aqui (não criar outra).
-5. Variáveis de ambiente: crie `.env.local` (já ignorado pelo git) com `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` e mantenha um `.env.example` sem valores.
+| Modo | Quando | Dados |
+| --- | --- | --- |
+| **Supabase** | `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` definidos | Reais, do banco. Exige login (Supabase Auth); acesso protegido por RLS |
+| **Demonstração** | Variáveis ausentes | Fictícios, só no navegador |
+
+Para usar o Supabase: aplique as migrations (`supabase db push`, ver [supabase/README.md](../../supabase/README.md)), crie `apps/web/.env.local` a partir de `.env.example` com a URL e a chave **anon** do projeto, e rode `npm run dev`. **Nunca** coloque a `service_role` em variáveis `VITE_*`.
+
+As telas só falam com [src/data/store.tsx](src/data/store.tsx) (`useStore()`, `useIndices()`). O acesso ao banco e a conversão snake_case ↔ camelCase ficam em [src/data/remote.ts](src/data/remote.ts).
+
+Já gravam no Supabase: **status/corretor/seguradora da renovação** (edição na tela de renovações). A gravação da **importação** está pronta (função `registrar_importacao`, transacional), mas o leitor do .xlsx ainda não existe; por isso a tela de importação fica desativada no modo Supabase (o fluxo simulado inventaria linhas).
 
 ## Telas
 

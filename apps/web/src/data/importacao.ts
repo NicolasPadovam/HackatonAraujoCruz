@@ -168,24 +168,24 @@ export function gerarPrevia(db: Db, mes: string): LinhaPrevia[] {
   })
 }
 
-export function aplicarPrevia(previa: LinhaPrevia[], prefixo: string) {
+export function aplicarPrevia(previa: LinhaPrevia[]) {
   const clientes: Cliente[] = []
   const seguros: Seguro[] = []
   const renovacoes: Renovacao[] = []
   const criados = new Map<string, string>()
 
-  previa.forEach((p, i) => {
+  previa.forEach((p) => {
     if (!p.convertida || p.resultado === 'erro' || p.resultado === 'atualiza') return
     const k = normalizarNome(p.bruta.segurado)
     let clienteId = p.clienteId ?? criados.get(k)
     if (!clienteId) {
-      clienteId = `${prefixo}-cli-${i}`
+      clienteId = crypto.randomUUID()
       criados.set(k, clienteId)
       clientes.push({ id: clienteId, nome: p.bruta.segurado, origem: 'carteira' })
     }
     const v = p.convertida
     const [a, m, d] = v.vencimento.split('-').map(Number)
-    const seguroId = `${prefixo}-seg-${i}`
+    const seguroId = crypto.randomUUID()
     seguros.push({
       id: seguroId,
       clienteId,
@@ -197,7 +197,7 @@ export function aplicarPrevia(previa: LinhaPrevia[], prefixo: string) {
       situacao: 'ativo',
     })
     renovacoes.push({
-      id: `${prefixo}-ren-${i}`,
+      id: crypto.randomUUID(),
       seguroId,
       vencimento: v.vencimento,
       corretorId: v.corretorId,

@@ -1,6 +1,6 @@
 # Modelo de dados — CRM
 
-> Status: **proposta**. Pensado para Postgres/Supabase, mas este documento não cria migrations: a configuração do Supabase está sendo feita em outra branch. Quando ela entrar na `main`, as migrations saem daqui.
+> Status: **implementado** em `supabase/migrations/20261017000200_modelo_renovacoes.sql`. Diferenças em relação ao texto abaixo: `clientes.documento` virou `cpf_cnpj`; `seguros.numero_apolice` vem da tabela antiga; `importacoes` ganhou `aba` e `importado_por_nome`; `clientes` ainda tem campos extras (`tipo`, `endereco`, `consentimento_lgpd_em`) da migration inicial.
 
 ## Princípios
 

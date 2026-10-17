@@ -1,6 +1,14 @@
 # Supabase
 
-Schema do CRM versionado em `migrations/`. Seed local em `seed.sql`.
+Schema do CRM versionado em `migrations/`:
+
+| Migration | O que faz |
+| --- | --- |
+| `…000000_schema_inicial` | Perfis/papéis, clientes, seguradoras, RLS base |
+| `…000100_ramo_outro` | Acrescenta o ramo `outro` |
+| `…000200_modelo_renovacoes` | Alinha ao [modelo de dados](../docs/arquitetura/modelo-dados.md): corretores (R, C), seguros, renovações, cotações, importações e a função `registrar_importacao` |
+
+Seguradoras e corretores vêm das migrations (dados de referência). `seed.sql` não tem dados.
 
 ## Desenvolvimento local
 ```bash
