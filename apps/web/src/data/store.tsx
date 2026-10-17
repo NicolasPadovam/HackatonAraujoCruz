@@ -6,7 +6,9 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { Cliente, Corretor, Db, Importacao, Renovacao, Seguradora, Seguro } from '../domain/types'
 import { supabase } from '../lib/supabase'
 import { gerarDbExemplo } from './mock'
-import { carregarDb, salvarImportacao, salvarRenovacao } from './remote'
+import {
+  atualizarCliente, atualizarSeguro, cadastrarSeguro, carregarDb, inserirCliente, salvarImportacao, salvarRenovacao,
+} from './remote'
 
 const CHAVE = 'crm-araujo-cruz:prototipo:v1'
 
@@ -40,6 +42,10 @@ interface Store {
   atualizarRenovacao: (id: string, patch: Partial<Renovacao>) => void
   /** Rejeita se a gravação falhar (nada é gravado pela metade). */
   registrarImportacao: (imp: Importacao, novos: Novos) => Promise<void>
+  /** Cria ou atualiza um cliente. Rejeita se a gravação falhar. */
+  salvarCliente: (c: Cliente, novo: boolean) => Promise<void>
+  /** Novo seguro (com a renovação no fim da vigência) ou edição de um existente. */
+  salvarSeguro: (s: Seguro, renovacao: Renovacao | null) => Promise<void>
   resetar: () => void
 }
 
@@ -101,6 +107,28 @@ export function DbProvider({ children }: { children: ReactNode }) {
     }))
   }, [])
 
+  const salvarCliente = useCallback(async (c: Cliente, novo: boolean) => {
+    if (supabase) await (novo ? inserirCliente(supabase, c) : atualizarCliente(supabase, c))
+    setDb((atual) => ({
+      ...atual,
+      clientes: novo ? [...atual.clientes, c] : atual.clientes.map((x) => (x.id === c.id ? c : x)),
+    }))
+  }, [])
+
+  const salvarSeguro = useCallback(async (s: Seguro, renovacao: Renovacao | null) => {
+    if (supabase) await (renovacao ? cadastrarSeguro(supabase, s, renovacao) : atualizarSeguro(supabase, s))
+    setDb((atual) => {
+      if (renovacao) return { ...atual, seguros: [...atual.seguros, s], renovacoes: [...atual.renovacoes, renovacao] }
+      return {
+        ...atual,
+        seguros: atual.seguros.map((x) => (x.id === s.id ? s : x)),
+        renovacoes: atual.renovacoes.map((r) =>
+          r.seguroId === s.id && (r.status === 'pendente' || r.status === 'cotando') ? { ...r, vencimento: s.fimVigencia } : r,
+        ),
+      }
+    })
+  }, [])
+
   const resetar = useCallback(() => {
     if (!supabase) setDb(gerarDbExemplo())
   }, [])
@@ -108,8 +136,10 @@ export function DbProvider({ children }: { children: ReactNode }) {
   const limparErro = useCallback(() => setErro(null), [])
 
   const value = useMemo(
-    () => ({ db, modo, carregando, erro, limparErro, recarregar, atualizarRenovacao, registrarImportacao, resetar }),
-    [db, modo, carregando, erro, limparErro, recarregar, atualizarRenovacao, registrarImportacao, resetar],
+    () => ({
+      db, modo, carregando, erro, limparErro, recarregar, atualizarRenovacao, registrarImportacao, salvarCliente, salvarSeguro, resetar,
+    }),
+    [db, modo, carregando, erro, limparErro, recarregar, atualizarRenovacao, registrarImportacao, salvarCliente, salvarSeguro, resetar],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

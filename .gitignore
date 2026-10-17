@@ -16,3 +16,11 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 *.log
+
+# Dados reais de clientes (LGPD): planilhas e exportações nunca vão para o git.
+# Guarde-as em dados-reais/ (ignorada). Exemplos fictícios para teste: tests/fixtures/.
+dados-reais/
+*.xlsx
+*.xls
+*.csv
+!tests/fixtures/**

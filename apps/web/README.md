@@ -25,7 +25,7 @@ Para usar o Supabase: aplique as migrations (`supabase db push`, ver [supabase/R
 
 As telas só falam com [src/data/store.tsx](src/data/store.tsx) (`useStore()`, `useIndices()`). O acesso ao banco e a conversão snake_case ↔ camelCase ficam em [src/data/remote.ts](src/data/remote.ts).
 
-Já gravam no Supabase: **status/corretor/seguradora da renovação** (edição na tela de renovações). A gravação da **importação** está pronta (função `registrar_importacao`, transacional), mas o leitor do .xlsx ainda não existe; por isso a tela de importação fica desativada no modo Supabase (o fluxo simulado inventaria linhas).
+Já gravam no Supabase: **status/corretor/seguradora da renovação** (edição na tela de renovações) e o **cadastro manual**: Clientes → Novo cliente (com o primeiro seguro opcional e “Salvar e cadastrar outro”), e na ficha, Editar dados / Adicionar seguro / editar seguro. Cada seguro novo gera a renovação no fim da vigência (função `cadastrar_seguro`, migration `…000300`). A gravação da **importação** está pronta (função `registrar_importacao`, transacional), mas o leitor do .xlsx ainda não existe; por isso a tela de importação fica desativada no modo Supabase (o fluxo simulado inventaria linhas).
 
 ## Telas
 
