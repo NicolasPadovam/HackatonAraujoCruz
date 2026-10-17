@@ -1,6 +1,7 @@
 import { AlertTriangle, ArrowRight, CheckCircle2, FileSpreadsheet, Link2, RefreshCw, Upload, UserPlus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useSessao } from '../auth/AuthGate'
 import { AvisoPrototipo, Card, PageHeader, Secao, StatusBadge, TD, TH } from '../components/ui'
 import { abasDisponiveis, aplicarPrevia, gerarPrevia, nomeAba, type Resultado } from '../data/importacao'
 import { useStore } from '../data/store'
@@ -18,38 +19,49 @@ const RESULTADO: Record<Resultado, { label: string; icone: typeof Link2; classe:
 }
 
 export default function Importar() {
-  const { db, registrarImportacao } = useStore()
+  const { db, modo, registrarImportacao } = useStore()
+  const { email } = useSessao()
   const [passo, setPasso] = useState<Passo>('arquivo')
   const [arquivo, setArquivo] = useState('')
   const [aba, setAba] = useState('')
   const [filtro, setFiltro] = useState<Resultado | 'todos'>('todos')
   const [resumo, setResumo] = useState<Record<Resultado, number> | null>(null)
+  const [gravando, setGravando] = useState(false)
+  const [erroGravacao, setErroGravacao] = useState<string | null>(null)
 
   const previa = useMemo(() => (aba ? gerarPrevia(db, aba) : []), [db, aba])
   const conta = (r: Resultado) => previa.filter((p) => p.resultado === r).length
   const mesesComDados = new Set(db.renovacoes.map((r) => mesKey(r.vencimento)))
   const idx = PASSOS.indexOf(passo)
 
-  const confirmar = () => {
-    const prefixo = `imp${Date.now()}`
-    const novos = aplicarPrevia(previa, prefixo)
+  const confirmar = async () => {
+    const novos = aplicarPrevia(previa)
     // A prévia é recalculada depois de gravar; guarda os números de agora.
-    setResumo({ vinculado: conta('vinculado'), novo_cliente: conta('novo_cliente'), atualiza: conta('atualiza'), erro: conta('erro') })
-    registrarImportacao(
-      {
-        id: prefixo,
-        arquivoNome: arquivo,
-        aba: nomeAba(aba),
-        mesReferencia: aba,
-        importadoPor: 'Você',
-        importadoEm: new Date().toISOString(),
-        linhasOk: previa.length - conta('erro'),
-        linhasErro: conta('erro'),
-        linhasRevisao: 0,
-      },
-      novos,
-    )
-    setPasso('pronto')
+    const numeros = { vinculado: conta('vinculado'), novo_cliente: conta('novo_cliente'), atualiza: conta('atualiza'), erro: conta('erro') }
+    setGravando(true)
+    setErroGravacao(null)
+    try {
+      await registrarImportacao(
+        {
+          id: crypto.randomUUID(),
+          arquivoNome: arquivo,
+          aba: nomeAba(aba),
+          mesReferencia: aba,
+          importadoPor: email ?? 'Você',
+          importadoEm: new Date().toISOString(),
+          linhasOk: previa.length - conta('erro'),
+          linhasErro: conta('erro'),
+          linhasRevisao: 0,
+        },
+        novos,
+      )
+      setResumo(numeros)
+      setPasso('pronto')
+    } catch (e) {
+      setErroGravacao(`Nada foi gravado. ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setGravando(false)
+    }
   }
 
   const reiniciar = () => {
@@ -58,6 +70,21 @@ export default function Importar() {
     setAba('')
     setFiltro('todos')
     setResumo(null)
+  }
+
+  if (modo === 'supabase') {
+    // O leitor real do .xlsx ainda não existe: o fluxo abaixo gera linhas inventadas e não pode gravar no banco real.
+    return (
+      <>
+        <PageHeader titulo="Importar planilha" subtitulo="Renovações do mês entram no sistema sem digitação" />
+        <div className="px-8 py-6">
+          <AvisoPrototipo>
+            A importação ainda não está ligada ao banco: falta o leitor do arquivo .xlsx (próximo passo, depende da planilha real de renovações).
+            O fluxo simulado fica disponível só no modo demonstração, para não gravar dados fictícios no banco.
+          </AvisoPrototipo>
+        </div>
+      </>
+    )
   }
 
   return (
@@ -222,9 +249,10 @@ export default function Importar() {
                   })}
                 </tbody>
               </table>
+              {erroGravacao && <p role="alert" className="border-t border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">{erroGravacao}</p>}
               <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
                 <button onClick={() => setPasso('aba')} className="rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50">Voltar</button>
-                <button onClick={confirmar} className="rounded-lg bg-marca-700 px-4 py-2 text-sm font-semibold text-white hover:bg-marca-600">
+                <button onClick={confirmar} disabled={gravando} className="rounded-lg bg-marca-700 px-4 py-2 text-sm font-semibold text-white hover:bg-marca-600 disabled:opacity-60">
                   Importar {previa.length - conta('erro')} linhas
                 </button>
               </div>

@@ -26,24 +26,28 @@ const ITENS: { titulo: string; detalhe: string; estado: Estado }[] = [
 ]
 
 export default function Roadmap() {
-  const { resetar } = useStore()
+  const { resetar, modo } = useStore()
   return (
     <>
       <PageHeader
         titulo="Sobre o protótipo"
         subtitulo="O que já dá para ver e o que vem depois"
-        direita={
+        direita={modo === 'demo' && (
           <button
             onClick={() => { resetar(); alert('Dados de exemplo restaurados.') }}
             className="flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
           >
             <RotateCcw className="size-4" /> Restaurar dados de exemplo
           </button>
-        }
+        )}
       />
       <div className="max-w-5xl space-y-5 px-8 py-6">
         <AvisoPrototipo>
-          Todos os dados são <strong>fictícios</strong> e ficam só neste navegador (localStorage). Nada é enviado a servidor.
+          {modo === 'demo' ? (
+            <>Todos os dados são <strong>fictícios</strong> e ficam só neste navegador (localStorage). Nada é enviado a servidor.</>
+          ) : (
+            <>Conectado ao <strong>Supabase</strong>: as telas mostram os dados reais do banco, com login da equipe.</>
+          )}
         </AvisoPrototipo>
 
         <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/70">

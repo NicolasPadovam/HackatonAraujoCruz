@@ -1,4 +1,2 @@
--- Dados de desenvolvimento (apenas ambiente local; NUNCA dados reais de clientes).
-insert into public.seguradoras (nome) values
-  ('Porto Seguro'), ('Bradesco Seguros'), ('SulAmérica'), ('Tokio Marine'), ('Allianz')
-on conflict (nome) do nothing;
+-- Dados de desenvolvimento local (supabase db reset). NUNCA dados reais de clientes.
+-- As seguradoras e os corretores (R, C) já vêm das migrations.
