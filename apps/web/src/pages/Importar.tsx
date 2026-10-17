@@ -10,9 +10,9 @@ import { useStore } from '../data/store'
 import { CAMPOS, sugerirMapeamento, type CampoDestino, type Mapeamento } from '../importacao/campos'
 import { detectarFormatoData, type FormatoData } from '../importacao/conversao'
 import { cabecalhos, detectarCabecalho, lerArquivo, type Aba } from '../importacao/leitura'
-import { chaveLinha, processar, type Correcao, type LinhaResultado, type Plano, type Resultado } from '../importacao/processar'
+import { chaveLinha, nomeMascarado, processar, type Correcao, type LinhaResultado, type Plano, type Resultado } from '../importacao/processar'
 import { fmtData, hojeIso, mesKey, normalizarNome } from '../lib/format'
-import { cnpjValido, cpfValido, fmtCpfCnpj, somenteDigitos } from '../lib/validacao'
+import { cnpjValido, cpfValido, fmtCpfCnpj, fmtTelefone, somenteDigitos } from '../lib/validacao'
 
 type Passo = 'arquivo' | 'configurar' | 'previa' | 'pronto'
 const PASSOS: Passo[] = ['arquivo', 'configurar', 'previa', 'pronto']
@@ -165,14 +165,16 @@ export default function Importar() {
   const validas = conta.novo_cliente + conta.vinculado + conta.atualiza
 
   /**
-   * Linhas que esperam dados da pessoa. Falta só o CPF: uma entrada por nome (o CPF digitado
-   * vale para todas as linhas do mesmo cliente). Nome com XXX: uma entrada por linha.
+   * Linhas que esperam dados da pessoa: obrigatórios (CPF, nome com XXX) ou opcionais (contato
+   * mascarado). Uma entrada por nome (o que for digitado vale para todas as linhas do mesmo
+   * cliente); nome com XXX: uma entrada por linha.
    */
   const pendentes = useMemo(() => {
     const grupos = new Map<string, { chave: string; linha: LinhaResultado; outras: number }>()
     for (const l of resultado?.linhas ?? []) {
-      if (l.resultado !== 'pendente' || !l.pendencias) continue
-      const k = l.pendencias.nome ? chaveLinha(l.aba, l.linha) : `nome:${normalizarNome(l.segurado ?? '')}`
+      const obrigatorio = l.resultado === 'pendente' && l.pendencias
+      if (!obrigatorio && !l.mascarados) continue
+      const k = l.pendencias?.nome ? chaveLinha(l.aba, l.linha) : `nome:${normalizarNome(l.segurado ?? '')}`
       const g = grupos.get(k)
       if (g) g.outras++
       else grupos.set(k, { chave: chaveLinha(l.aba, l.linha), linha: l, outras: 0 })
@@ -482,22 +484,25 @@ export default function Importar() {
             {pendentes.length > 0 && (
               <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-orange-200">
                 <div className="border-b border-orange-200 bg-orange-50 px-4 py-3">
-                  <p className="font-medium text-orange-900">Complete os dados de {conta.pendente} linha(s)</p>
+                  <p className="font-medium text-orange-900">
+                    {conta.pendente > 0 ? `Complete os dados de ${conta.pendente} linha(s)` : 'Dados mascarados pela seguradora'}
+                  </p>
                   <p className="text-sm text-orange-800">
-                    Sem CPF/CNPJ, o cliente não entra no sistema: digite o documento (basta uma vez por cliente).
-                    Nome com <strong>XXX</strong> veio mascarado pela seguradora: escreva o nome correto.
-                    Depois clique em <strong>Atualizar prévia</strong>. Linhas não completadas não são gravadas.
+                    Sem CPF/CNPJ, o cliente não entra no sistema: digite o documento. Nome com <strong>XX</strong> veio mascarado: escreva o nome correto.
+                    Telefone e e-mail mascarados <strong>não são gravados</strong>; digitar o correto é opcional.
+                    O que você digitar vale para todas as linhas do mesmo cliente. Depois clique em <strong>Atualizar prévia</strong>.
                   </p>
                 </div>
                 <div className="max-h-[28rem] overflow-y-auto">
                   <table className="w-full">
                     <thead className="sticky top-0 bg-slate-50">
                       <tr>
-                        <th className={TH}>Aba · linha</th>
+                        <th className={TH}>Linha</th>
                         <th className={TH}>Nome na planilha</th>
                         <th className={TH}>Nome do cliente</th>
                         <th className={TH}>CPF/CNPJ</th>
-                        <th className={TH}>Seguradora · vencimento</th>
+                        <th className={TH}>Telefone</th>
+                        <th className={TH}>E-mail</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -509,13 +514,14 @@ export default function Importar() {
                           <tr key={chave}>
                             <td className={`${TD} whitespace-nowrap text-xs text-slate-400`}>
                               {l.aba} · {l.linha}
+                              <span className="block">{l.seguradora} · {l.vencimento ? fmtData(l.vencimento) : '—'}</span>
                               {outras > 0 && <span className="block">+{outras} linha(s) do mesmo nome</span>}
                             </td>
                             <td className={`${TD} text-slate-600`}>{l.nomePlanilha}</td>
-                            <td className={`${TD} w-80`}>
+                            <td className={`${TD} w-72`}>
                               {l.pendencias?.nome ? (
                                 <input
-                                  className={`${INPUT} ${c.nome && /x{3}/i.test(c.nome) ? 'ring-rose-300' : ''}`}
+                                  className={`${INPUT} ${c.nome && nomeMascarado(c.nome) ? 'ring-rose-300' : ''}`}
                                   placeholder="Nome correto"
                                   aria-label={`Nome correto da linha ${l.linha}`}
                                   value={c.nome ?? l.nomePlanilha ?? ''}
@@ -525,7 +531,7 @@ export default function Importar() {
                                 <span className="font-medium">{l.segurado}</span>
                               )}
                             </td>
-                            <td className={`${TD} w-56`}>
+                            <td className={`${TD} w-48`}>
                               {l.pendencias?.cpf ? (
                                 <>
                                   <input
@@ -543,8 +549,36 @@ export default function Importar() {
                                 <span className="tabular-nums text-slate-600">{l.cpfCnpj ? fmtCpfCnpj(l.cpfCnpj) : 'Já cadastrado'}</span>
                               )}
                             </td>
-                            <td className={`${TD} whitespace-nowrap text-sm text-slate-600`}>
-                              {l.seguradora} · {l.vencimento ? fmtData(l.vencimento) : '—'}
+                            <td className={`${TD} w-44`}>
+                              {l.mascarados?.telefone ? (
+                                <>
+                                  <input
+                                    className={`${INPUT} tabular-nums`}
+                                    placeholder="(00) 00000-0000"
+                                    inputMode="tel"
+                                    maxLength={15}
+                                    aria-label={`Telefone da linha ${l.linha}`}
+                                    value={c.telefone ?? ''}
+                                    onChange={(e) => corrigir(chave, 'telefone', fmtTelefone(e.target.value))}
+                                  />
+                                  <span className="mt-1 block text-xs text-slate-400">Na planilha: {l.mascarados.telefone}</span>
+                                </>
+                              ) : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className={`${TD} w-56`}>
+                              {l.mascarados?.email ? (
+                                <>
+                                  <input
+                                    className={INPUT}
+                                    type="email"
+                                    placeholder="nome@exemplo.com"
+                                    aria-label={`E-mail da linha ${l.linha}`}
+                                    value={c.email ?? ''}
+                                    onChange={(e) => corrigir(chave, 'email', e.target.value)}
+                                  />
+                                  <span className="mt-1 block truncate text-xs text-slate-400">Na planilha: {l.mascarados.email}</span>
+                                </>
+                              ) : <span className="text-slate-300">—</span>}
                             </td>
                           </tr>
                         )
@@ -605,7 +639,7 @@ export default function Importar() {
               {erroGravacao && <p role="alert" className="border-t border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-800">{erroGravacao}</p>}
               <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3">
                 {conta.pendente > 0 && (
-                  <span className="mr-auto text-sm text-orange-800">{conta.pendente} linha(s) sem CPF ou com nome XXX ficarão de fora.</span>
+                  <span className="mr-auto text-sm text-orange-800">{conta.pendente} linha(s) sem CPF ou com nome mascarado ficarão de fora.</span>
                 )}
                 <BotaoSecundario onClick={() => setPasso('configurar')} disabled={gravando}>Voltar e ajustar colunas</BotaoSecundario>
                 <BotaoPrimario onClick={() => void confirmar()} disabled={gravando || validas === 0}>

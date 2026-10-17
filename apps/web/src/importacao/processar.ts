@@ -18,12 +18,21 @@ export type Resultado = 'novo_cliente' | 'vinculado' | 'atualiza' | 'pendente' |
 export interface Correcao {
   nome?: string
   cpfCnpj?: string
+  telefone?: string
+  email?: string
 }
 
 export const chaveLinha = (aba: string, linha: number) => `${aba}|${linha}`
 
-/** Nome mascarado pela seguradora ("JOAO XXX SILVA"): precisa ser corrigido à mão. */
-export const nomeMascarado = (nome: string) => /x{3}/i.test(nome)
+/**
+ * Nome mascarado pela seguradora ("JOAO XXX SILVA", "Maria Souza XXra"): precisa ser corrigido à mão.
+ * A Porto mascara o último sobrenome com 2 ou mais X.
+ */
+export const nomeMascarado = (nome: string) => /x{2,}/i.test(nome)
+/** Telefone com X no lugar de dígitos ("(11) 9XX12-XX34"). */
+export const telefoneMascarado = (t: string) => /\dx|x\d/i.test(t.replace(/[\s()-]/g, ''))
+/** E-mail com a parte local escondida por x ("axxxxa@exemplo.com"). */
+export const emailMascarado = (e: string) => /x{3,}/i.test(e.split('@')[0] ?? '')
 
 export interface LinhaResultado {
   aba: string
@@ -32,6 +41,8 @@ export interface LinhaResultado {
   nomePlanilha?: string
   /** O que falta a pessoa informar para a linha poder ser gravada. */
   pendencias?: { nome: boolean; cpf: boolean }
+  /** Contato que veio mascarado na planilha (texto original). Opcional: não impede a gravação. */
+  mascarados?: { telefone?: string; email?: string }
   segurado?: string
   cpfCnpj?: string
   seguradora?: string
@@ -121,15 +132,23 @@ export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano 
   }
   brutas.sort((a, b) => (a.venc ?? '9999').localeCompare(b.venc ?? '9999'))
 
-  // CPF digitado numa linha vale para as outras linhas do mesmo nome (digita uma vez por cliente).
+  // CPF/telefone/e-mail digitados numa linha valem para as outras do mesmo nome (digita uma vez por cliente).
   const correcoes = e.correcoes ?? {}
-  const cpfDigitadoPorNome = new Map<string, string>()
+  const digitadoPorNome = new Map<string, Correcao>()
   for (const b of brutas) {
     const c = correcoes[chaveLinha(b.aba, b.linha)]
-    const doc = c?.cpfCnpj ? somenteDigitos(c.cpfCnpj) : undefined
+    if (!c) continue
     const iSeg = e.mapeamento.segurado ? b.cab.indexOf(e.mapeamento.segurado) : -1
-    const nome = c?.nome?.trim() || (iSeg >= 0 ? texto(b.celulas[iSeg] ?? null) : undefined)
-    if (nome && !nomeMascarado(nome) && documentoValido(doc)) cpfDigitadoPorNome.set(normalizarNome(nome), doc)
+    const nome = c.nome?.trim() || (iSeg >= 0 ? texto(b.celulas[iSeg] ?? null) : undefined)
+    if (!nome || nomeMascarado(nome)) continue
+    const k = normalizarNome(nome)
+    const atual = { ...digitadoPorNome.get(k) }
+    const doc = somenteDigitos(c.cpfCnpj ?? '')
+    const tel = somenteDigitos(c.telefone ?? '')
+    if (documentoValido(doc)) atual.cpfCnpj = doc
+    if (tel.length === 10 || tel.length === 11) atual.telefone = tel
+    if (c.email && emailValido(c.email) && !emailMascarado(c.email)) atual.email = c.email.trim()
+    digitadoPorNome.set(k, atual)
   }
 
   const linhas: LinhaResultado[] = []
@@ -198,8 +217,30 @@ export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano 
       if (documentoValido(d)) { cpf = d; msg('CPF/CNPJ informado na importação.') }
       else msg('O CPF/CNPJ digitado não é válido.')
     }
-    if (!cpf && !precisaNome) cpf = cpfDigitadoPorNome.get(normalizarNome(segurado))
+    const digitadoNome = precisaNome ? undefined : digitadoPorNome.get(normalizarNome(segurado))
+    if (!cpf && digitadoNome?.cpfCnpj) cpf = digitadoNome.cpfCnpj
     res.cpfCnpj = cpf
+
+    // Contato mascarado pela seguradora não é gravado; a pessoa pode digitar o certo (opcional).
+    const telTexto = texto(valor('telefone'))
+    const emailBruto = texto(valor('email'))
+    const telMasc = !!telTexto && telefoneMascarado(telTexto)
+    const emailMasc = !!emailBruto && emailMascarado(emailBruto)
+    if (telMasc || emailMasc) res.mascarados = { telefone: telMasc ? telTexto : undefined, email: emailMasc ? emailBruto : undefined }
+
+    // Pode vir mais de um ("(11) 4000-1234 / (11) 90001-2345"): prefere o celular (11 dígitos).
+    const fones = telMasc ? [] : (telTexto ?? '').split(/[/;|]/).map(somenteDigitos).filter((d) => d.length === 10 || d.length === 11)
+    const telBruto = fones.find((d) => d.length === 11) ?? fones[0]
+    let telefone = telBruto ? fmtTelefone(telBruto) : undefined
+    let email = emailBruto && !emailMasc && emailValido(emailBruto) ? emailBruto : undefined
+    const telDigitado = somenteDigitos(correcao?.telefone ?? '')
+    if (telDigitado.length === 10 || telDigitado.length === 11) { telefone = fmtTelefone(telDigitado); msg('Telefone informado na importação.') }
+    else if (telDigitado) msg('O telefone digitado precisa ter DDD + número.')
+    else if (digitadoNome?.telefone) telefone = fmtTelefone(digitadoNome.telefone)
+    const emailDigitado = texto(correcao?.email ?? null)
+    if (emailDigitado && emailValido(emailDigitado) && !emailMascarado(emailDigitado)) { email = emailDigitado; msg('E-mail informado na importação.') }
+    else if (emailDigitado) msg('O e-mail digitado não é válido.')
+    else if (digitadoNome?.email) email = digitadoNome.email
 
     // Sem CPF/CNPJ, a linha só entra se o nome já for de um cliente cadastrado com documento.
     const mesmoNome = precisaNome ? [] : porNome.get(normalizarNome(segurado)) ?? []
@@ -209,13 +250,6 @@ export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano 
       res.pendencias = { nome: precisaNome, cpf: precisaCpf }
       continue
     }
-
-    // Pode vir mais de um ("(11) 4000-1234 / (11) 90001-2345"): prefere o celular (11 dígitos).
-    const fones = (texto(valor('telefone')) ?? '').split(/[/;|]/).map(somenteDigitos).filter((d) => d.length === 10 || d.length === 11)
-    const telBruto = fones.find((d) => d.length === 11) ?? fones[0]
-    const telefone = telBruto ? fmtTelefone(telBruto) : undefined
-    const emailBruto = texto(valor('email'))
-    const email = emailBruto && emailValido(emailBruto) ? emailBruto : undefined
 
     const seguradoraAtual = acharSeguradora(valor('seguradoraAtual'), db.seguradoras)
     if (texto(valor('seguradoraAtual')) && !seguradoraAtual) msg(`Seguradora atual "${texto(valor('seguradoraAtual'))}" não reconhecida.`)
@@ -254,6 +288,12 @@ export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano 
       tocadosCli.add(cliente.id)
       clienteNovo = true
     } else {
+      // Contato mascarado que o cadastro já tem: não precisa pedir.
+      if (res.mascarados) {
+        const { telefone: t, email: m } = res.mascarados
+        const resto = { telefone: cliente.telefone ? undefined : t, email: cliente.email ? undefined : m }
+        res.mascarados = resto.telefone || resto.email ? resto : undefined
+      }
       // Completa o cadastro com o que a planilha trouxer (nunca apaga nem sobrescreve).
       if (cpf && !cliente.cpfCnpj) { cliente.cpfCnpj = cpf; indexarCliente(cliente); tocadosCli.add(cliente.id); msg('CPF/CNPJ adicionado ao cadastro.') }
       if (telefone && !cliente.telefone) { cliente.telefone = telefone; tocadosCli.add(cliente.id) }

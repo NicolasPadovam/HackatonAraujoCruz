@@ -73,4 +73,45 @@ describe('pendências de CPF e nome', () => {
     const r = rodar(dbVazio(), [['fulano xxx teste', null, '10/11/2026']])
     expect(r.linhas[0].pendencias).toEqual({ nome: true, cpf: true })
   })
+
+  it('sobrenome mascarado com só dois X (como na Porto) também pede o nome', () => {
+    const r = rodar(dbVazio(), [['Fulano de Tal XXta', CPF_B, '10/11/2026']])
+    expect(r.linhas[0].pendencias).toEqual({ nome: true, cpf: false })
+  })
+})
+
+describe('contato mascarado', () => {
+  const CAB_CONTATO = ['Nome', 'CPF', 'Vencimento', 'Celular', 'Email']
+  const rodarContato = (linhas: (string | null)[][], correcoes?: Record<string, Correcao>) =>
+    processar({
+      db: dbVazio(),
+      abas: [{ aba: { nome: 'A', linhas: [CAB_CONTATO, ...linhas] }, linhaCabecalho: 0 }],
+      mapeamento: { segurado: 'Nome', cpfCnpj: 'CPF', vencimento: 'Vencimento', telefone: 'Celular', email: 'Email' },
+      seguradoraFixaId: 'seg-1',
+      formatoData: 'dmy',
+      ramoPadrao: 'residencial',
+      corretorPadraoId: 'cor-1',
+      correcoes,
+    })
+  const LINHA = ['CLIENTE FICTICIO UM', CPF_A, '10/11/2026', '(11) 9XX12-XX34', 'fxxxxxo@exemplo.com']
+
+  it('não grava telefone nem e-mail mascarados, mas grava a linha', () => {
+    const r = rodarContato([LINHA])
+    expect(r.linhas[0].resultado).toBe('novo_cliente')
+    expect(r.linhas[0].mascarados).toEqual({ telefone: '(11) 9XX12-XX34', email: 'fxxxxxo@exemplo.com' })
+    expect(r.plano.clientes[0].telefone).toBeUndefined()
+    expect(r.plano.clientes[0].email).toBeUndefined()
+  })
+
+  it('usa o contato digitado na prévia', () => {
+    const r = rodarContato([LINHA], { [chaveLinha('A', 2)]: { telefone: '11900001234', email: 'cliente@exemplo.com' } })
+    expect(r.plano.clientes[0].telefone).toBe('(11) 90000-1234')
+    expect(r.plano.clientes[0].email).toBe('cliente@exemplo.com')
+  })
+
+  it('e-mail comum não é tratado como mascarado', () => {
+    const r = rodarContato([[...LINHA.slice(0, 3), null, 'alex@exemplo.com']])
+    expect(r.linhas[0].mascarados).toBeUndefined()
+    expect(r.plano.clientes[0].email).toBe('alex@exemplo.com')
+  })
 })
