@@ -3,11 +3,12 @@
 //  - Demonstração (sem variáveis): dados fictícios em memória + localStorage.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { Cliente, Corretor, Db, ModeloImportacao, Renovacao, Seguradora, Seguro } from '../domain/types'
+import type { Cliente, Corretor, Db, ModeloImportacao, Renovacao, Seguradora, Seguro, StatusRenovacao } from '../domain/types'
+import { avancar, statusEmAberto, type DadosCotacao } from '../lib/atividades'
 import { supabase } from '../lib/supabase'
 import { gerarDbExemplo } from './mock'
 import {
-  atualizarCliente, atualizarSeguro, cadastrarSeguro, carregarDb, importarLote, inserirCliente, salvarModelo as salvarModeloRemoto,
+  atualizarCliente, atualizarSeguro, avancarRenovacao as avancarRenovacaoRemoto, cadastrarSeguro, carregarDb, importarLote, inserirCliente, salvarModelo as salvarModeloRemoto,
   salvarRenovacao, type LoteImportacao,
 } from './remote'
 
@@ -38,6 +39,8 @@ interface Store {
   limparErro: () => void
   recarregar: () => Promise<void>
   atualizarRenovacao: (id: string, patch: Partial<Renovacao>) => void
+  /** Muda a etapa seguindo o fluxo (com a cotação quando exigida). Rejeita se a regra ou a gravação falharem. */
+  avancarRenovacao: (id: string, para: StatusRenovacao, dados?: { cotacao?: DadosCotacao; seguradoraFechadaId?: string }) => Promise<void>
   /** Grava uma importação inteira. Rejeita se falhar (nada é gravado pela metade). */
   importar: (lote: LoteImportacao) => Promise<void>
   /** Guarda como ler o relatório de uma seguradora (mapeamento de colunas). */
@@ -96,6 +99,29 @@ export function DbProvider({ children }: { children: ReactNode }) {
     })
   }, [recarregar])
 
+  const avancarRenovacao = useCallback(
+    async (id: string, para: StatusRenovacao, dados: { cotacao?: DadosCotacao; seguradoraFechadaId?: string } = {}) => {
+      const ren = db.renovacoes.find((r) => r.id === id)
+      const seguro = ren && db.seguros.find((s) => s.id === ren.seguroId)
+      if (!ren || !seguro) throw new Error('Renovação não encontrada.')
+      // Valida e calcula o efeito antes de gravar (lança se o movimento não é permitido).
+      const efeito = avancar(ren, seguro, para, db.cotacoes.filter((c) => c.renovacaoId === id), dados)
+      if (supabase) await avancarRenovacaoRemoto(supabase, id, para, dados) // só atualiza a tela se gravou
+      setDb((atual) => ({
+        ...atual,
+        renovacoes: atual.renovacoes.map((r) => (r.id === id ? { ...r, ...efeito.patch } : r)),
+        cotacoes: [
+          ...atual.cotacoes.map((c) => {
+            const mudou = efeito.atualizacoes.find((a) => a.id === c.id)
+            return mudou ? { ...c, status: mudou.status } : c
+          }),
+          ...efeito.novasCotacoes,
+        ],
+      }))
+    },
+    [db.renovacoes, db.seguros, db.cotacoes],
+  )
+
   const importar = useCallback(async (lote: LoteImportacao) => {
     if (supabase) await importarLote(supabase, lote) // só atualiza a tela se gravou
     const juntar = <T extends { id: string }>(atuais: T[], novos: T[]) => {
@@ -132,7 +158,7 @@ export function DbProvider({ children }: { children: ReactNode }) {
         ...atual,
         seguros: atual.seguros.map((x) => (x.id === s.id ? s : x)),
         renovacoes: atual.renovacoes.map((r) =>
-          r.seguroId === s.id && (r.status === 'pendente' || r.status === 'cotando') ? { ...r, vencimento: s.fimVigencia } : r,
+          r.seguroId === s.id && statusEmAberto(r.status) ? { ...r, vencimento: s.fimVigencia } : r,
         ),
       }
     })
@@ -146,9 +172,9 @@ export function DbProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({
-      db, modo, carregando, erro, limparErro, recarregar, atualizarRenovacao, importar, salvarModelo, salvarCliente, salvarSeguro, resetar,
+      db, modo, carregando, erro, limparErro, recarregar, atualizarRenovacao, avancarRenovacao, importar, salvarModelo, salvarCliente, salvarSeguro, resetar,
     }),
-    [db, modo, carregando, erro, limparErro, recarregar, atualizarRenovacao, importar, salvarModelo, salvarCliente, salvarSeguro, resetar],
+    [db, modo, carregando, erro, limparErro, recarregar, atualizarRenovacao, avancarRenovacao, importar, salvarModelo, salvarCliente, salvarSeguro, resetar],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

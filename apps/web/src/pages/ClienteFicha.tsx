@@ -7,6 +7,7 @@ import { SeguroForm } from '../components/SeguroForm'
 import { AvisoPrototipo, Avatar, BotaoPrimario, BotaoSecundario, Card, PageHeader, RamoBadge, Secao, StatusBadge, TD, TH, Vazio } from '../components/ui'
 import type { Seguro } from '../domain/types'
 import { useIndices, useStore } from '../data/store'
+import { FUNCAO_LABEL, atividadeDe } from '../lib/atividades'
 import { fmtData, fmtMoeda, fmtPct, iniciais } from '../lib/format'
 import { fmtCpfCnpj } from '../lib/validacao'
 
@@ -150,7 +151,7 @@ export default function ClienteFicha() {
 
           <Secao titulo="Histórico de renovações">
             {historico.length === 0 ? <Vazio>Sem renovações registradas.</Vazio> : (
-              <Tabela cabecalho={['Vencimento', 'Ramo', 'Seguradora', 'Corretor', 'Status']}>
+              <Tabela cabecalho={['Vencimento', 'Ramo', 'Seguradora', 'Corretor', 'Status', 'Próxima atividade']}>
                 {historico.map(({ r, s }) => {
                   const de = ix.seguradora.get(s.seguradoraId)?.nome
                   const para = r.seguradoraFechadaId ? ix.seguradora.get(r.seguradoraFechadaId)?.nome : undefined
@@ -166,6 +167,9 @@ export default function ClienteFicha() {
                       </td>
                       <td className={`${TD} text-slate-600`}>{ix.corretor.get(r.corretorId)?.nome}</td>
                       <td className={TD}><StatusBadge status={r.status} /></td>
+                      <td className={`${TD} text-slate-600`}>
+                        {atividadeDe(r) ? <>{atividadeDe(r)!.texto} <span className="text-xs text-slate-400">· {FUNCAO_LABEL[atividadeDe(r)!.funcao]}</span></> : '—'}
+                      </td>
                     </tr>
                   )
                 })}
@@ -175,14 +179,15 @@ export default function ClienteFicha() {
 
           <Secao titulo="Cotações">
             {cotacoes.length === 0 ? <Vazio>Nenhuma cotação registrada.</Vazio> : (
-              <Tabela cabecalho={['Data', 'Ramo', 'Seguradora', 'Prêmio', 'Origem', 'Situação']}>
+              <Tabela cabecalho={['Data', 'Ramo', 'Seguradora', 'Prêmio', 'Comissão', 'Como foi obtida', 'Situação']}>
                 {cotacoes.map((c) => (
                   <tr key={c.id}>
                     <td className={`${TD} tabular-nums`}>{fmtData(c.data)}</td>
                     <td className={TD}><RamoBadge ramo={c.ramo} /></td>
                     <td className={`${TD} font-medium`}>{ix.seguradora.get(c.seguradoraId)?.nome}</td>
                     <td className={`${TD} tabular-nums`}>{fmtMoeda(c.premio)}</td>
-                    <td className={`${TD} text-slate-600`}>{c.origem}</td>
+                    <td className={`${TD} tabular-nums`}>{fmtPct(c.comissaoPct)}</td>
+                    <td className={`${TD} text-slate-600`}>{c.caminho === 'contato_seguradora' ? 'Contato com a seguradora' : c.caminho === 'reducao_comissao' ? 'Redução de comissão' : '—'}</td>
                     <td className={`${TD} ${c.status === 'aceita' ? 'font-medium text-emerald-600' : c.status === 'recusada' ? 'text-slate-400' : 'text-sky-600'}`}>{c.status}</td>
                   </tr>
                 ))}

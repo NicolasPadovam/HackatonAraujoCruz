@@ -6,9 +6,11 @@ import { addMeses, diasAte, hojeIso, mesKey, mesLabel, toIso } from './format'
 
 export const JANELA_MESES = 12
 export const SEMANAS_CALENDARIO = 13 // ~90 dias
-export const ABERTAS: StatusRenovacao[] = ['pendente', 'cotando']
+/** Renovação ainda em andamento (qualquer etapa antes de um desfecho). */
+export const emAberto = (r: Renovacao) => statusEmAberto(r.status)
 
-export const emAberto = (r: Renovacao) => r.status === 'pendente' || r.status === 'cotando'
+/** Desfecho que não virou renovação: o cliente não quis ou a negociação não fechou. */
+const perdida = (r: Renovacao) => r.status === 'nao_renovada' || r.status === 'cancelada'
 
 /** Últimos n meses (yyyy-mm), terminando no mês atual. */
 export function ultimosMeses(n = JANELA_MESES): string[] {
@@ -60,7 +62,7 @@ export function taxaPorMes(db: Db, meses: string[]): PontoTaxa[] {
   return meses.map((mes) => {
     const doMes = db.renovacoes.filter((r) => mesKey(r.vencimento) === mes)
     const renovadas = doMes.filter((r) => r.status === 'renovada').length
-    const naoRenovadas = doMes.filter((r) => r.status === 'nao_renovada').length
+    const naoRenovadas = doMes.filter(perdida).length
     const fechadas = renovadas + naoRenovadas
     return {
       mes,
@@ -78,7 +80,10 @@ export interface Funil {
   fechadas: number
   renovadas: number
   naoRenovadas: number
+  /** Negociações encerradas sem acordo (já contadas em `fechadas`, separadas das não renovadas). */
+  canceladas: number
   pendentes: number
+  /** Em andamento: cotando, cotada, enviada ao cliente ou em negociação. */
   cotando: number
 }
 
@@ -90,11 +95,12 @@ export function funilDoPeriodo(db: Db, meses: string[]): Funil {
   return {
     total: doMes.length,
     cotadas: conta((r) => r.cotada || r.status !== 'pendente'),
-    fechadas: conta((r) => r.status === 'renovada' || r.status === 'nao_renovada'),
+    fechadas: conta((r) => r.status === 'renovada' || perdida(r)),
     renovadas: conta((r) => r.status === 'renovada'),
     naoRenovadas: conta((r) => r.status === 'nao_renovada'),
+    canceladas: conta((r) => r.status === 'cancelada'),
     pendentes: conta((r) => r.status === 'pendente'),
-    cotando: conta((r) => r.status === 'cotando'),
+    cotando: conta((r) => macroStatus(r.status) === 'andamento'),
   }
 }
 
@@ -113,13 +119,13 @@ export function perdas(db: Db, meses: string[], chave: (s: Seguro) => string): P
   const m = new Map<string, { perdidas: number; fechadas: number }>()
   for (const r of db.renovacoes) {
     if (!janela.has(mesKey(r.vencimento))) continue
-    if (r.status !== 'renovada' && r.status !== 'nao_renovada') continue
+    if (r.status !== 'renovada' && !perdida(r)) continue
     const s = seguros.get(r.seguroId)
     if (!s) continue
     const k = chave(s)
     const g = m.get(k) ?? { perdidas: 0, fechadas: 0 }
     g.fechadas++
-    if (r.status === 'nao_renovada') g.perdidas++
+    if (perdida(r)) g.perdidas++
     m.set(k, g)
   }
   return [...m.entries()]
@@ -133,11 +139,11 @@ export function perdas(db: Db, meses: string[], chave: (s: Seguro) => string): P
 export interface Semana {
   /** null = renovações em aberto que já venceram. */
   inicio: string | null
-  contagem: Record<StatusRenovacao, number>
+  contagem: Record<Macro, number>
   total: number
 }
 
-const zerado = (): Record<StatusRenovacao, number> => ({ pendente: 0, cotando: 0, renovada: 0, nao_renovada: 0 })
+const zerado = (): Record<Macro, number> => ({ pendente: 0, andamento: 0, renovada: 0, nao_renovada: 0, cancelada: 0 })
 
 /** Vencimentos agrupados em semanas a partir de hoje; o primeiro item reúne os atrasados em aberto. */
 export function vencimentosPorSemana(db: Db, semanas = SEMANAS_CALENDARIO): Semana[] {
@@ -157,7 +163,7 @@ export function vencimentosPorSemana(db: Db, semanas = SEMANAS_CALENDARIO): Sema
     else if (d < semanas * 7) idx = 1 + Math.floor(d / 7)
     else idx = -1
     if (idx < 0) continue
-    lista[idx].contagem[r.status]++
+    lista[idx].contagem[macroStatus(r.status)]++
     lista[idx].total++
   }
   return lista
@@ -171,18 +177,18 @@ export function filaDeAcao(db: Db): Renovacao[] {
 export interface Carga {
   corretorId: string
   pendente: number
-  cotando: number
+  andamento: number
   total: number
 }
 
 /** Em aberto que vencem em até `dias` dias (inclui as já atrasadas), por corretor. */
 export function cargaPorCorretor(db: Db, dias = 30): Carga[] {
-  const m = new Map<string, Carga>(db.corretores.map((c) => [c.id, { corretorId: c.id, pendente: 0, cotando: 0, total: 0 }]))
+  const m = new Map<string, Carga>(db.corretores.map((c) => [c.id, { corretorId: c.id, pendente: 0, andamento: 0, total: 0 }]))
   for (const r of db.renovacoes) {
     if (!emAberto(r) || diasAte(r.vencimento) > dias) continue
-    const c = m.get(r.corretorId) ?? { corretorId: r.corretorId, pendente: 0, cotando: 0, total: 0 }
+    const c = m.get(r.corretorId) ?? { corretorId: r.corretorId, pendente: 0, andamento: 0, total: 0 }
     if (r.status === 'pendente') c.pendente++
-    else c.cotando++
+    else c.andamento++
     c.total++
     m.set(r.corretorId, c)
   }

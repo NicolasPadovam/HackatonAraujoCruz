@@ -197,6 +197,7 @@ export default function Importar() {
           arquivoNome: arquivo.name,
           aba: abasSel.join(', '),
           mesReferencia: mesKey(vencs[0] ?? hojeIso()),
+          seguradoraId: seguradoraFixa?.id ?? null,
           importadoPor: email ?? 'Você',
           importadoEm: new Date().toISOString(),
           linhasOk: validas,

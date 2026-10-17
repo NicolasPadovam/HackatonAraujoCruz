@@ -2,10 +2,9 @@ import { GripVertical } from 'lucide-react'
 import { useState } from 'react'
 import type { Cliente, Renovacao, Seguro, StatusRenovacao } from '../domain/types'
 import { useIndices, useStore } from '../data/store'
-import { diasAte, fmtData, prazoLabel } from '../lib/format'
-import { RamoBadge, STATUS } from './ui'
-
-const COLUNAS: StatusRenovacao[] = ['pendente', 'cotando', 'renovada', 'nao_renovada']
+import { STATUS_ORDEM, atividadeDe, exigeCotacao, statusEmAberto, transicaoPermitida } from '../lib/atividades'
+import { faixaVencimento, fmtData, prazoLabel } from '../lib/format'
+import { FAIXA, RamoBadge, STATUS } from './ui'
 
 export interface ItemKanban {
   r: Renovacao
@@ -14,20 +13,28 @@ export interface ItemKanban {
 }
 
 export function KanbanRenovacoes({ itens, onAbrir }: { itens: ItemKanban[]; onAbrir: (id: string) => void }) {
-  const { atualizarRenovacao } = useStore()
+  const { avancarRenovacao } = useStore()
   const ix = useIndices()
   const [arrastando, setArrastando] = useState<string | null>(null)
   const [sobre, setSobre] = useState<StatusRenovacao | null>(null)
 
-  const mover = (id: string, status: StatusRenovacao) => {
+  const [aviso, setAviso] = useState<string | null>(null)
+
+  const mover = (id: string, para: StatusRenovacao) => {
     const item = itens.find(({ r }) => r.id === id)
-    if (!item || item.r.status === status) return
-    const { r, seguro } = item
-    atualizarRenovacao(id, {
-      status,
-      cotada: status !== 'pendente' ? true : r.cotada,
-      seguradoraFechadaId: status === 'renovada' ? r.seguradoraFechadaId ?? seguro.seguradoraId : undefined,
-    })
+    if (!item || item.r.status === para) return
+    const de = item.r.status
+    setAviso(null)
+    if (!transicaoPermitida(de, para)) {
+      setAviso(`Não dá para ir de “${STATUS[de].label}” direto para “${STATUS[para].label}”. Abra o cartão para ver o próximo passo.`)
+      return
+    }
+    if (exigeCotacao(de, para)) {
+      setAviso('Esta etapa pede o registro da cotação: preencha no painel que abriu.')
+      onAbrir(id)
+      return
+    }
+    avancarRenovacao(id, para).catch((e) => setAviso(e instanceof Error ? e.message : String(e)))
   }
 
   const soltar = (status: StatusRenovacao) => (e: React.DragEvent) => {
@@ -39,19 +46,26 @@ export function KanbanRenovacoes({ itens, onAbrir }: { itens: ItemKanban[]; onAb
   }
 
   return (
-    <div className="grid grid-cols-4 items-start gap-4">
-      {COLUNAS.map((s) => {
+    <div className="space-y-3">
+      {aviso && (
+        <p role="alert" className="flex items-start justify-between gap-3 rounded-lg bg-amber-50 px-4 py-2.5 text-sm text-amber-900 ring-1 ring-amber-200">
+          {aviso}
+          <button onClick={() => setAviso(null)} className="shrink-0 text-xs font-medium hover:underline">Fechar</button>
+        </p>
+      )}
+    <div className="flex items-start gap-3 overflow-x-auto pb-2">
+      {STATUS_ORDEM.map((s) => {
         const cards = itens
           .filter(({ r }) => r.status === s)
           .sort((a, b) => a.r.vencimento.localeCompare(b.r.vencimento))
-        const aberto = s === 'pendente' || s === 'cotando'
+        const aberto = statusEmAberto(s)
         return (
           <section
             key={s}
             onDragOver={(e) => { e.preventDefault(); setSobre(s) }}
             onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setSobre(null) }}
             onDrop={soltar(s)}
-            className={`flex min-h-64 flex-col rounded-xl bg-slate-100/70 p-3 ring-2 transition ${
+            className={`flex min-h-64 w-64 shrink-0 flex-col rounded-xl bg-slate-100/70 p-3 ring-2 transition ${
               sobre === s && arrastando ? 'ring-marca-500 bg-marca-50/60' : 'ring-transparent'
             }`}
           >
@@ -62,7 +76,8 @@ export function KanbanRenovacoes({ itens, onAbrir }: { itens: ItemKanban[]; onAb
             </header>
             <ul className="space-y-2">
               {cards.map(({ r, seguro, cliente }) => {
-                const urgente = aberto && diasAte(r.vencimento) <= 7
+                const faixa = aberto ? faixaVencimento(r.vencimento) : null
+                const atividade = atividadeDe(r)
                 return (
                   <li
                     key={r.id}
@@ -89,10 +104,13 @@ export function KanbanRenovacoes({ itens, onAbrir }: { itens: ItemKanban[]; onAb
                     <div className="mt-2 flex items-center justify-between text-xs">
                       <span className="tabular-nums text-slate-500">Vence {fmtData(r.vencimento)}</span>
                       {aberto && (
-                        <span className={urgente ? 'font-medium text-rose-600' : 'text-slate-400'}>{prazoLabel(r.vencimento)}</span>
+                        <span className={faixa ? FAIXA[faixa].texto : 'text-slate-400'}>{prazoLabel(r.vencimento)}</span>
                       )}
                     </div>
-                    <p className="mt-1.5 text-xs text-slate-400">{ix.corretor.get(r.corretorId)?.nome}</p>
+                    <p className="mt-1.5 text-xs text-slate-400">
+                      {ix.corretor.get(r.corretorId)?.nome}
+                      {atividade && <span className="text-marca-600"> · {atividade.texto}</span>}
+                    </p>
                   </li>
                 )
               })}
@@ -103,6 +121,7 @@ export function KanbanRenovacoes({ itens, onAbrir }: { itens: ItemKanban[]; onAb
           </section>
         )
       })}
+    </div>
     </div>
   )
 }

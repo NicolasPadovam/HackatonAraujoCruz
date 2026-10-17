@@ -171,12 +171,20 @@ export function gerarDbExemplo(): Db {
       }
 
       // Renovação da janela atual.
+      // Etapas variadas, para o demo mostrar o fluxo inteiro (docs/produto/features/002).
+      const sorteio = r()
+      const escolha = (faixas: [number, StatusRenovacao][]): StatusRenovacao => {
+        let acc = 0
+        for (const [p, st] of faixas) { acc += p; if (sorteio < acc) return st }
+        return faixas[faixas.length - 1][1]
+      }
       let status: StatusRenovacao
-      if (offset < 0) status = chance(0.8) ? 'renovada' : 'nao_renovada'
+      if (offset < 0) status = escolha([[0.75, 'renovada'], [0.15, 'nao_renovada'], [0.1, 'cancelada']])
       else if (offset === 0 && dia < diaHoje)
-        status = chance(0.7) ? 'renovada' : chance(0.5) ? 'nao_renovada' : 'cotando'
-      else if (offset === 0) status = chance(0.5) ? 'pendente' : chance(0.75) ? 'cotando' : 'renovada'
-      else if (offset === 1) status = chance(0.8) ? 'pendente' : 'cotando'
+        status = escolha([[0.6, 'renovada'], [0.1, 'nao_renovada'], [0.05, 'cancelada'], [0.15, 'enviada'], [0.1, 'negociando']])
+      else if (offset === 0)
+        status = escolha([[0.25, 'pendente'], [0.2, 'cotando'], [0.15, 'cotada'], [0.2, 'enviada'], [0.1, 'negociando'], [0.1, 'renovada']])
+      else if (offset === 1) status = escolha([[0.55, 'pendente'], [0.15, 'cotando'], [0.1, 'cotada'], [0.15, 'enviada'], [0.05, 'negociando']])
       else status = 'pendente'
 
       const renId = `ren-${++nRen}`
@@ -184,7 +192,7 @@ export function gerarDbExemplo(): Db {
         status === 'renovada' ? (chance(0.75) ? seguradoraId : pick(POR_RAMO[ramo])) : undefined
       // Renovação fechada gera a apólice nova; a atual passa a "renovado".
       let seguroNovoId: string | undefined
-      if (status === 'renovada' || status === 'nao_renovada') {
+      if (status === 'renovada' || status === 'nao_renovada' || status === 'cancelada') {
         seguro.situacao = status === 'renovada' ? 'renovado' : 'nao_renovado'
       }
       if (status === 'renovada' && fechada) {
@@ -210,22 +218,31 @@ export function gerarDbExemplo(): Db {
         valorRecebido: status === 'renovada' && temFinanceiro ? Math.round(premio * 0.15) : undefined,
       })
 
-      // Cotações manuais (até três orçamentos) para quem está em cotação.
-      if (status === 'cotando' || (status === 'renovada' && chance(0.5))) {
-        const opcoes = [...POR_RAMO[ramo]].sort(() => r() - 0.5).slice(0, 3)
-        opcoes.forEach((sid) => {
+      // Cotações manuais: quem passou da cotação tem a primeira oferta; na negociação há rodadas
+      // com comissão e caminho (contato com a seguradora ou redução de comissão).
+      const comCotacao = ['cotada', 'enviada', 'negociando', 'cancelada'].includes(status) || (status === 'renovada' && chance(0.6))
+      if (comCotacao) {
+        const dataBase = new Date(a, m - 1, Math.max(1, dia - 10))
+        const registrar = (sid: string, valor: number, st: Cotacao['status'], extra: Partial<Cotacao> = {}, deslocarDias = 0) =>
           cotacoes.push({
             id: `cot-${++nCot}`,
             clienteId,
             renovacaoId: renId,
             ramo,
             seguradoraId: sid,
-            premio: Math.round(premio * (0.85 + r() * 0.3)),
+            premio: valor,
             origem: 'manual',
-            status: status === 'renovada' ? (sid === fechada ? 'aceita' : 'recusada') : 'enviada',
-            data: toIso(new Date(a, m - 1, Math.max(1, dia - 10))),
+            status: st,
+            data: toIso(new Date(dataBase.getFullYear(), dataBase.getMonth(), dataBase.getDate() + deslocarDias)),
+            ...extra,
           })
-        })
+        const rodadaFinal: Cotacao['status'] = status === 'renovada' ? 'aceita' : status === 'cotada' ? 'cotada' : 'enviada'
+        if (status === 'negociando' || status === 'cancelada') {
+          registrar(seguradoraId, premio, 'recusada', { comissaoPct: 15 })
+          registrar(seguradoraId, Math.round(premio * 0.93), 'recusada', { comissaoPct: 10, caminho: 'reducao_comissao' }, 3)
+        } else {
+          registrar(fechada ?? seguradoraId, Math.round(premio * (0.9 + r() * 0.2)), rodadaFinal, { comissaoPct: pick([10, 12, 15]) })
+        }
       }
     })
   })

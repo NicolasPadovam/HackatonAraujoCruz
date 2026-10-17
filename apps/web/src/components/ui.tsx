@@ -1,6 +1,7 @@
 import { Car, ChevronLeft, ChevronRight, HeartPulse, Home, Shield, X, type LucideIcon } from 'lucide-react'
 import { useEffect, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import type { Ramo, StatusRenovacao } from '../domain/types'
+import type { Macro } from '../lib/atividades'
 import type { FaixaVencimento } from '../lib/format'
 
 export const STATUS: Record<StatusRenovacao, { label: string; classe: string; ponto: string }> = {
@@ -8,6 +9,19 @@ export const STATUS: Record<StatusRenovacao, { label: string; classe: string; po
   cotando: { label: 'Cotando', classe: 'bg-sky-50 text-sky-800 ring-sky-200', ponto: 'bg-sky-500' },
   renovada: { label: 'Renovada', classe: 'bg-emerald-50 text-emerald-800 ring-emerald-200', ponto: 'bg-emerald-500' },
   nao_renovada: { label: 'Não renovada', classe: 'bg-rose-50 text-rose-800 ring-rose-200', ponto: 'bg-rose-500' },
+  cotada: { label: 'Cotação pronta', classe: 'bg-indigo-50 text-indigo-800 ring-indigo-200', ponto: 'bg-indigo-500' },
+  enviada: { label: 'Enviada ao cliente', classe: 'bg-violet-50 text-violet-800 ring-violet-200', ponto: 'bg-violet-500' },
+  negociando: { label: 'Em negociação', classe: 'bg-orange-50 text-orange-800 ring-orange-200', ponto: 'bg-orange-500' },
+  cancelada: { label: 'Cancelada', classe: 'bg-slate-100 text-slate-700 ring-slate-300', ponto: 'bg-slate-500' },
+}
+
+/** Cores dos grupos de etapas usados nos gráficos do Painel (cor = classe do ponto, hex = SVG/estilo). */
+export const MACRO: Record<Macro, { label: string; ponto: string; hex: string }> = {
+  pendente: { label: 'Pendente', ponto: 'bg-amber-500', hex: '#f59e0b' },
+  andamento: { label: 'Em andamento', ponto: 'bg-sky-500', hex: '#0ea5e9' },
+  renovada: { label: 'Renovada', ponto: 'bg-emerald-500', hex: '#10b981' },
+  nao_renovada: { label: 'Não renovada', ponto: 'bg-rose-500', hex: '#f43f5e' },
+  cancelada: { label: 'Cancelada', ponto: 'bg-slate-500', hex: '#64748b' },
 }
 
 /** Cores das faixas de alerta de vencimento (vermelho, amarelo, neutro). */

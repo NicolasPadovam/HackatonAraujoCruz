@@ -313,7 +313,11 @@ export function processar(e: Entrada): { linhas: LinhaResultado[]; plano: Plano 
       renovacaoPorChave.set(chaveRen(seguro.id, ren.vencimento), ren)
     } else {
       // Relatório sem andamento (das seguradoras) não desfaz o que a equipe já marcou.
-      if (temStatus) { ren.status = status; ren.cotada = status !== 'pendente' || ren.cotada }
+      // Reimportar não desfaz o andamento das etapas novas (cotada, enviada, negociando, cancelada):
+      // nelas, só um desfecho da planilha (renovada/não renovada) altera a renovação.
+      const naEtapaNova = ['cotada', 'enviada', 'negociando', 'cancelada'].includes(ren.status)
+      const mudaStatus = temStatus && (!naEtapaNova || status === 'renovada' || status === 'nao_renovada')
+      if (mudaStatus) { ren.status = status; ren.cotada = status !== 'pendente' || ren.cotada }
       if (corretor) ren.corretorId = corretor.id
     }
     const recebido = converterNumero(valor('valorRecebido'))
