@@ -1,4 +1,4 @@
-import { Car, HeartPulse, Home, Shield, X, type LucideIcon } from 'lucide-react'
+import { Car, ChevronLeft, ChevronRight, HeartPulse, Home, Shield, X, type LucideIcon } from 'lucide-react'
 import { useEffect, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import type { Ramo, StatusRenovacao } from '../domain/types'
 
@@ -202,3 +202,24 @@ export function BotaoSecundario({ children, ...props }: ButtonHTMLAttributes<HTM
 /** Estilos de tabela compartilhados. */
 export const TH = 'px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500'
 export const TD = 'px-4 py-3 text-sm'
+
+/** Escolha do mês: setas para o anterior/próximo e lista com todos os meses que têm dados. */
+export function SeletorMes({ valor, meses, onChange, rotulo }: {
+  valor: string; meses: string[]; onChange: (m: string) => void; rotulo: (m: string) => string
+}) {
+  const i = meses.indexOf(valor)
+  const botao = 'rounded-lg p-2 text-slate-500 ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-40'
+  return (
+    <div className="flex items-center gap-1.5">
+      <button className={botao} disabled={i <= 0} onClick={() => onChange(meses[i - 1])} title="Mês anterior"><ChevronLeft className="size-4" /></button>
+      <select
+        value={valor}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-lg border-0 bg-white px-3 py-2 text-sm font-medium ring-1 ring-slate-200 focus:ring-2 focus:ring-marca-500"
+      >
+        {[...meses].reverse().map((m) => <option key={m} value={m}>{rotulo(m)}</option>)}
+      </select>
+      <button className={botao} disabled={i < 0 || i >= meses.length - 1} onClick={() => onChange(meses[i + 1])} title="Próximo mês"><ChevronRight className="size-4" /></button>
+    </div>
+  )
+}

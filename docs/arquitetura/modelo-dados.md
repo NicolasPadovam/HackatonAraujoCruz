@@ -120,7 +120,7 @@ No MVP essa tabela pode ficar vazia. Ela existe para a ficha do cliente e para a
 
 ## Modelos de importação
 
-Cada formato de planilha é um "modelo": um mapeamento coluna → campo mais regras de conversão (formato de data, ✅/❌ → status, "R$ -" → nulo). O primeiro é a planilha consolidada atual. Os arquivos de cada seguradora viram novos modelos quando tivermos exemplos anonimizados.
+Cada formato de planilha é um "modelo": um mapeamento coluna → campo mais opções (formato de data, ramo e corretor padrão), na tabela `modelos_importacao` (um por seguradora; `seguradora_id` nulo = planilha da corretora). Guarda só nomes de colunas, nenhum dado de cliente. A importação inteira é gravada pela função `importar_lote` numa transação. Detalhes em [apps/web/README.md](../../apps/web/README.md#importação-de-planilhas).
 
 ## Segurança e LGPD
 

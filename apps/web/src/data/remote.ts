@@ -3,7 +3,7 @@
 // Sem dados reais aqui: nada além de mapeamento.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Cliente, Corretor, Cotacao, Db, Importacao, Renovacao, Seguradora, Seguro } from '../domain/types'
+import type { Cliente, Corretor, Cotacao, Db, Importacao, ModeloImportacao, Renovacao, Seguradora, Seguro } from '../domain/types'
 
 type Row = Record<string, unknown>
 
@@ -28,7 +28,7 @@ const texto = (v: unknown) => (v == null ? undefined : String(v))
 const numero = (v: unknown) => (v == null ? undefined : Number(v)) // numeric chega como string/number
 
 export async function carregarDb(client: SupabaseClient): Promise<Db> {
-  const [clientes, seguradoras, corretores, seguros, renovacoes, cotacoes, importacoes] = await Promise.all([
+  const [clientes, seguradoras, corretores, seguros, renovacoes, cotacoes, importacoes, modelos] = await Promise.all([
     lerTabela(client, 'clientes', 'nome'),
     lerTabela(client, 'seguradoras', 'nome'),
     lerTabela(client, 'corretores', 'nome'),
@@ -36,6 +36,7 @@ export async function carregarDb(client: SupabaseClient): Promise<Db> {
     lerTabela(client, 'renovacoes', 'vencimento'),
     lerTabela(client, 'cotacoes', 'data'),
     lerTabela(client, 'importacoes', 'importado_em'),
+    lerTabela(client, 'modelos_importacao', 'nome').catch(() => [] as Row[]), // antes da migration 000400
   ])
 
   return {
@@ -49,7 +50,7 @@ export async function carregarDb(client: SupabaseClient): Promise<Db> {
       observacoes: texto(r.observacoes),
       origem: r.origem as Cliente['origem'],
     })),
-    seguradoras: seguradoras.map((r): Seguradora => ({ id: r.id as string, nome: r.nome as string })),
+    seguradoras: seguradoras.map((r): Seguradora => ({ id: r.id as string, nome: r.nome as string, apelidos: (r.apelidos as string[] | null) ?? [] })),
     corretores: corretores.map((r): Corretor => ({ id: r.id as string, nome: r.nome as string, sigla: r.sigla as string })),
     seguros: seguros.map((r): Seguro => ({
       id: r.id as string,
@@ -100,6 +101,13 @@ export async function carregarDb(client: SupabaseClient): Promise<Db> {
         linhasRevisao: r.linhas_revisao as number,
       }))
       .reverse(), // mais recente primeiro
+    modelos: modelos.map((r): ModeloImportacao => ({
+      id: r.id as string,
+      nome: r.nome as string,
+      seguradoraId: texto(r.seguradora_id) ?? null,
+      mapeamento: (r.mapeamento as Record<string, string>) ?? {},
+      opcoes: (r.opcoes as ModeloImportacao['opcoes']) ?? {},
+    })),
   }
 }
 
@@ -195,17 +203,25 @@ export async function atualizarSeguro(client: SupabaseClient, s: Seguro) {
   if (e2) throw new Error(mensagem(e2))
 }
 
-export interface NovosRegistros {
+// ---------------------------------------------------------------------------
+// Importação de planilhas
+// ---------------------------------------------------------------------------
+
+export interface LoteImportacao {
+  importacao: Importacao & { modelo: string }
   clientes: Cliente[]
   seguros: Seguro[]
   renovacoes: Renovacao[]
+  linhas: { dadosBrutos: Record<string, unknown>; status: 'ok' | 'erro' | 'revisao'; mensagem?: string; renovacaoId?: string }[]
 }
 
-/** Grava a importação inteira numa transação (função registrar_importacao no banco). */
-export async function salvarImportacao(client: SupabaseClient, imp: Importacao, novos: NovosRegistros) {
-  const { error } = await client.rpc('registrar_importacao', {
+/** Grava a importação inteira numa transação (função importar_lote, migration 000400). */
+export async function importarLote(client: SupabaseClient, lote: LoteImportacao) {
+  const { importacao: imp } = lote
+  const { error } = await client.rpc('importar_lote', {
     p_importacao: {
       id: imp.id,
+      modelo: imp.modelo,
       arquivo_nome: imp.arquivoNome,
       aba: imp.aba,
       mes_referencia: `${imp.mesReferencia}-01`,
@@ -214,25 +230,36 @@ export async function salvarImportacao(client: SupabaseClient, imp: Importacao, 
       linhas_erro: imp.linhasErro,
       linhas_revisao: imp.linhasRevisao,
     },
-    p_clientes: novos.clientes.map((c) => ({ id: c.id, nome: c.nome, origem: c.origem })),
-    p_seguros: novos.seguros.map((s) => ({
-      id: s.id,
-      cliente_id: s.clienteId,
-      seguradora_id: s.seguradoraId,
-      ramo: s.ramo,
-      inicio_vigencia: s.inicioVigencia,
-      fim_vigencia: s.fimVigencia,
-      comissao_pct: s.comissaoPct ?? null,
-      situacao: s.situacao,
-    })),
-    p_renovacoes: novos.renovacoes.map((r) => ({
+    p_clientes: lote.clientes.map((c) => ({ id: c.id, ...linhaCliente(c) })),
+    p_seguros: lote.seguros.map((s) => ({ id: s.id, ...linhaSeguro(s) })),
+    p_renovacoes: lote.renovacoes.map((r) => ({
       id: r.id,
       seguro_id: r.seguroId,
       vencimento: r.vencimento,
       corretor_id: r.corretorId,
       status: r.status,
       cotada: r.cotada,
+      seguradora_fechada_id: r.seguradoraFechadaId ?? null,
+      seguro_novo_id: r.seguroNovoId ?? null,
+      valor_recebido: r.valorRecebido ?? null,
+    })),
+    p_linhas: lote.linhas.map((l) => ({
+      dados_brutos: l.dadosBrutos,
+      status: l.status,
+      mensagem: l.mensagem ?? null,
+      renovacao_id: l.renovacaoId ?? null,
     })),
   })
-  if (error) throw new Error(error.message)
+  if (error) {
+    if (error.code === 'PGRST202') throw new Error('A função importar_lote não existe no banco: aplique a migration 20261017000400_importacao_xlsx.')
+    throw new Error(mensagem(error))
+  }
+}
+
+export async function salvarModelo(client: SupabaseClient, m: ModeloImportacao, novo: boolean) {
+  const linha = { nome: m.nome, seguradora_id: m.seguradoraId, mapeamento: m.mapeamento, opcoes: m.opcoes }
+  const { error } = novo
+    ? await client.from('modelos_importacao').insert({ id: m.id, ...linha })
+    : await client.from('modelos_importacao').update(linha).eq('id', m.id)
+  if (error) throw new Error(mensagem(error))
 }

@@ -23,6 +23,7 @@ export interface Cliente {
 export interface Seguradora {
   id: string
   nome: string
+  apelidos?: string[] // variações vistas nas planilhas ("Porto", "PORTO SEGURO")
 }
 
 export interface Corretor {
@@ -82,6 +83,20 @@ export interface Importacao {
   linhasRevisao: number
 }
 
+/** Como ler o relatório de uma seguradora (ou a planilha da corretora, seguradoraId = null). */
+export interface ModeloImportacao {
+  id: string
+  nome: string
+  seguradoraId: string | null
+  /** campo do CRM -> texto do cabeçalho da coluna na planilha */
+  mapeamento: Record<string, string>
+  opcoes: {
+    formatoData?: 'dmy' | 'mdy'
+    ramoPadrao?: Ramo
+    corretorPadraoId?: string
+  }
+}
+
 export interface Db {
   clientes: Cliente[]
   seguradoras: Seguradora[]
@@ -90,4 +105,5 @@ export interface Db {
   renovacoes: Renovacao[]
   cotacoes: Cotacao[]
   importacoes: Importacao[]
+  modelos: ModeloImportacao[]
 }
