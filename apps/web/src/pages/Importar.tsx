@@ -337,12 +337,16 @@ export default function Importar() {
         )}
 
         {passo === 'configurar' && arquivo && (
-          <div className="max-w-xl space-y-5">
-            <Card className="flex items-center gap-3 !py-3">
-              <FileSpreadsheet className="size-5 text-emerald-600" />
-              <span className="text-sm font-medium">{arquivo.name}</span>
-              <span className="text-sm text-slate-500">{abas.length} aba(s)</span>
-              <button onClick={reiniciar} className="ml-auto text-sm text-marca-600 hover:underline">Trocar arquivo</button>
+          <div className="max-w-3xl space-y-5">
+            <Card className="flex items-center gap-4">
+              <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-emerald-50">
+                <FileSpreadsheet className="size-6 text-emerald-600" />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate font-medium" title={arquivo.name}>{arquivo.name}</span>
+                <span className="block text-sm text-slate-500">{abas.length} aba(s)</span>
+              </span>
+              <button onClick={reiniciar} className="ml-auto shrink-0 text-sm text-marca-600 hover:underline">Trocar arquivo</button>
             </Card>
 
             <Card className="space-y-4">
