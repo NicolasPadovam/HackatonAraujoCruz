@@ -5,7 +5,7 @@ import { Card, RAMO, STATUS, Secao, TD, TH } from '../../components/ui'
 import type { Ramo, StatusRenovacao } from '../../domain/types'
 import { useIndices, useStore } from '../../data/store'
 import { DIAS_ALERTA, faixaVencimento, fmtData, fmtMoeda, mesKey, mesLabel } from '../../lib/format'
-import { JANELA_MESES, taxaPorMes, ultimosMeses } from '../../lib/metricas'
+import { type Periodo, mesesDoAno, taxaPorMes } from '../../lib/metricas'
 
 const ORDEM: StatusRenovacao[] = ['renovada', 'nao_renovada', 'cotando', 'pendente']
 type Grupo = Record<StatusRenovacao, number>
@@ -52,15 +52,17 @@ function Kpi({ valor, label, destaque = false }: { valor: string | number; label
   )
 }
 
-export default function VisaoGeral({ mes }: { mes: string }) {
+export default function VisaoGeral({ periodo }: { periodo: Periodo }) {
   const { db } = useStore()
   const ix = useIndices()
 
-  const tendencia = useMemo(() => taxaPorMes(db, ultimosMeses()), [db])
+  // O gráfico mostra sempre os 12 meses do ano escolhido (inclusive meses futuros); o filtro de mês só destaca um deles.
+  const tendencia = useMemo(() => taxaPorMes(db, mesesDoAno(periodo.ano)), [db, periodo.ano])
+  const doPeriodo = useMemo(() => new Set(periodo.meses), [periodo.meses])
 
   const dados = useMemo(() => {
     const doMes = db.renovacoes
-      .filter((r) => mesKey(r.vencimento) === mes)
+      .filter((r) => doPeriodo.has(mesKey(r.vencimento)))
       .map((r) => ({ r, s: ix.seguro.get(r.seguroId)! }))
     type Item = (typeof doMes)[number]
     const conta = (f: (x: Item) => boolean) => doMes.filter(f).length
@@ -93,7 +95,7 @@ export default function VisaoGeral({ mes }: { mes: string }) {
       porRamo: agrupar(({ s }) => s.ramo),
       porCorretor: agrupar(({ r }) => r.corretorId),
     }
-  }, [db.renovacoes, ix, mes])
+  }, [db.renovacoes, ix, doPeriodo])
 
   const clientesUnicos = db.clientes.length
   const segurosAtivos = db.seguros.filter((s) => s.situacao === 'ativo').length
@@ -101,22 +103,22 @@ export default function VisaoGeral({ mes }: { mes: string }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-4 gap-4">
-        <Kpi valor={dados.total} label="Renovações no mês" />
-        <Kpi valor={dados.taxa != null ? `${dados.taxa}%` : '—'} label="Taxa de renovação (fechadas)" />
+        <Kpi valor={dados.total} label={periodo.mes ? 'Renovações no mês' : 'Renovações no ano'} />
+        <Kpi valor={dados.taxa != null ? `${dados.taxa}%` : '—'} label={`Taxa de renovação (fechadas) · ${periodo.rotulo}`} />
         <Kpi valor={dados.emAberto} label="Em aberto (pendente ou cotando)" />
         <Kpi valor={dados.vencendo} label={`Em aberto vencendo em até ${DIAS_ALERTA} dias ou vencidas`} destaque={dados.urgentes > 0} />
       </div>
 
-      <Secao titulo={`Taxa de renovação · últimos ${JANELA_MESES} meses`}>
+      <Secao titulo={`Taxa de renovação por mês · ${periodo.ano}`}>
         <Card>
           <Linhas
-            rotulos={tendencia.map((p) => mesLabel(p.mes, true))}
+            rotulos={tendencia.map((p) => mesLabel(p.mes, true).slice(0, 3))}
             series={[{ nome: 'Taxa de renovação', cor: '#3b63d9', valores: tendencia.map((p) => p.taxa) }]}
             formatar={(v) => `${v}%`}
             max={100}
           />
           <p className="mt-2 text-xs text-slate-500">
-            Renovadas ÷ fechadas (renovadas + não renovadas) em cada mês. Meses sem nenhuma renovação fechada ficam sem ponto.
+            Renovadas ÷ fechadas (renovadas + não renovadas) entre as renovações que vencem em cada mês. Mês sem nenhuma fechada fica sem ponto.
           </p>
         </Card>
       </Secao>
@@ -151,7 +153,7 @@ export default function VisaoGeral({ mes }: { mes: string }) {
       </div>
 
       {dados.trocas.length > 0 && (
-        <Secao titulo="Trocas de seguradora no mês">
+        <Secao titulo={`Trocas de seguradora · ${periodo.rotulo}`}>
           <div className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200/70">
             <table className="w-full">
               <thead className="bg-slate-50">
