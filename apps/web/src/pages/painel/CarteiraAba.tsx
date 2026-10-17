@@ -6,7 +6,7 @@ import type { Ramo } from '../../domain/types'
 import { useIndices, useStore } from '../../data/store'
 import { mesLabel } from '../../lib/format'
 import {
-  JANELA_MESES, clientesPorQtdSeguros, evolucaoDaCarteira, mixDaCarteira, trocasEntreSeguradoras, ultimosMeses, vendaCruzada,
+  type Periodo, clientesPorQtdSeguros, evolucaoDaCarteira, mixDaCarteira, trocasEntreSeguradoras, vendaCruzada,
 } from '../../lib/metricas'
 
 const MAX_NOMES = 8
@@ -28,17 +28,16 @@ function ListaClientes({ ids, vazio }: { ids: string[]; vazio: string }) {
   )
 }
 
-export default function CarteiraAba() {
+export default function CarteiraAba({ periodo }: { periodo: Periodo }) {
   const { db } = useStore()
   const ix = useIndices()
-  const janela = useMemo(() => ultimosMeses(), [])
 
   const qtd = useMemo(() => clientesPorQtdSeguros(db), [db])
   const mixRamo = useMemo(() => mixDaCarteira(db, (s) => s.ramo), [db])
   const mixSeg = useMemo(() => mixDaCarteira(db, (s) => s.seguradoraId), [db])
   const cruzada = useMemo(() => vendaCruzada(db), [db])
-  const evolucao = useMemo(() => evolucaoDaCarteira(db, janela), [db, janela])
-  const trocas = useMemo(() => trocasEntreSeguradoras(db, janela), [db, janela])
+  const evolucao = useMemo(() => evolucaoDaCarteira(db, periodo.meses), [db, periodo.meses])
+  const trocas = useMemo(() => trocasEntreSeguradoras(db, periodo.meses), [db, periodo.meses])
 
   const nomeSeg = (id: string) => ix.seguradora.get(id)?.nome ?? id
   const totalClientes = qtd.um + qtd.dois + qtd.tresOuMais
@@ -102,24 +101,24 @@ export default function CarteiraAba() {
         </div>
       </Secao>
 
-      <Secao titulo={`Evolução da carteira · últimos ${JANELA_MESES} meses`}>
+      <Secao titulo={`Evolução da carteira · ${periodo.ano}`}>
         <Card className="space-y-3">
           <Legenda itens={[{ label: 'Clientes com seguro vigente', cor: '#3b63d9' }, { label: 'Seguros vigentes', cor: '#0d9488' }]} />
           <Linhas
-            rotulos={evolucao.map((p) => mesLabel(p.mes, true))}
+            rotulos={evolucao.map((p) => mesLabel(p.mes, true).slice(0, 3))}
             series={[
               { nome: 'Clientes', cor: '#3b63d9', valores: evolucao.map((p) => p.clientes) },
               { nome: 'Seguros', cor: '#0d9488', valores: evolucao.map((p) => p.seguros) },
             ]}
           />
           <p className="text-xs text-slate-500">
-            Calculado pelas vigências dos seguros no fim de cada mês. Só reflete o que já foi importado: meses antigos
+            Calculado pelas vigências dos seguros no fim de cada mês; meses que ainda não chegaram ficam sem ponto. Só reflete o que já foi importado: meses antigos
             podem parecer menores por falta de histórico, não por perda de clientes.
           </p>
         </Card>
       </Secao>
 
-      <Secao titulo={`Movimento entre seguradoras · últimos ${JANELA_MESES} meses`}>
+      <Secao titulo={`Movimento entre seguradoras · ${periodo.ano}`}>
         {trocas.total === 0 ? (
           <Card><p className="text-sm text-slate-500">Nenhuma troca de seguradora registrada no período.</p></Card>
         ) : (
