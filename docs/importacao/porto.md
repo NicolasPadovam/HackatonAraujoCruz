@@ -40,9 +40,13 @@
 
 `nomeSocialPessoa`, `codigoPessoa`, `sucursal`, `endosso`, `origemProposta`, `numeroProposta`, `susep`, `dataEmissao`, `status`, `celular`, `ano`.
 
+## Decisões
+
+- `PROT COMB AUTO+RESID` (código 68) é **um seguro só**: é um pacote, com preço próprio, diferente de contratar auto e residencial separados (decisão da equipe, 17/10/2026).
+
 ## Dúvidas em aberto
 
-1. Tabela de `codigoProduto`/`nomeProduto` → ramo: `PROT COMB AUTO+RESID` (68) é um seguro combinado auto + residencial. Vira **um** seguro (ramo auto? residencial?) ou **dois**?
+1. Tabela de `codigoProduto`/`nomeProduto` → ramo para os demais produtos.
 2. Como aparece um seguro **residencial puro** neste relatório (código de produto e ramo)?
 3. O relatório da Azul é sempre o mesmo da Porto, ou a Azul também exporta um arquivo próprio?
 4. `codigoPessoa` vale guardar como identificador externo do cliente na Porto?
