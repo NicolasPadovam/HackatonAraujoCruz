@@ -20,14 +20,34 @@ function decodificarEntidades(t: string): string {
     .replace(/&amp;/g, '&')
 }
 
+/** .xlsx (zip, "PK") e .xls binário (OLE) têm assinatura própria; o resto é texto (CSV, TSV, HTML). */
+function ehBinario(b: Uint8Array): boolean {
+  return (b[0] === 0x50 && b[1] === 0x4b) || (b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0)
+}
+
+/**
+ * Texto sem BOM: o SheetJS o leria como Latin-1 e "Apólice" viraria "ApÃ³lice".
+ * Tenta UTF-8 (estrito); se não for UTF-8 válido, é Windows-1252 (o padrão do Excel em português).
+ */
+export function decodificarTexto(b: Uint8Array): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(b).replace(/^﻿/, '')
+  } catch {
+    return new TextDecoder('windows-1252').decode(b)
+  }
+}
+
 export async function lerArquivo(arquivo: File): Promise<Aba[]> {
   const XLSX = await import('xlsx') // carregado só quando alguém importa
-  const dados = await arquivo.arrayBuffer()
+  const bytes = new Uint8Array(await arquivo.arrayBuffer())
   // Vários relatórios ".xls" são, na verdade, HTML ou texto com TAB (ver docs/importacao/).
   // raw: true -> nesses formatos de texto o SheetJS não "adivinha" datas e números
   // (ele leria 05/11 como mês/dia e "1234,56" como milhar); a conversão fica com o importador.
   // cellDates: false -> datas de .xlsx/.xls chegam como número serial do Excel (sem problema de fuso).
-  const wb = XLSX.read(dados, { type: 'array', cellDates: false, dense: true, raw: true })
+  const opcoes = { cellDates: false, dense: true, raw: true } as const
+  const wb = ehBinario(bytes)
+    ? XLSX.read(bytes, { ...opcoes, type: 'array' })
+    : XLSX.read(decodificarTexto(bytes), { ...opcoes, type: 'string' })
   return wb.SheetNames.map((nome) => ({
     nome,
     linhas: XLSX.utils

@@ -168,6 +168,9 @@ export function filaDeAcao(db: Db): Renovacao[] {
   return db.renovacoes.filter(emAberto).sort((a, b) => a.vencimento.localeCompare(b.vencimento))
 }
 
+/** Chave dos agrupamentos para renovações sem corretor definido (importadas sem a coluna). */
+export const SEM_CORRETOR = ''
+
 export interface Carga {
   corretorId: string
   pendente: number
@@ -180,11 +183,11 @@ export function cargaPorCorretor(db: Db, dias = 30): Carga[] {
   const m = new Map<string, Carga>(db.corretores.map((c) => [c.id, { corretorId: c.id, pendente: 0, cotando: 0, total: 0 }]))
   for (const r of db.renovacoes) {
     if (!emAberto(r) || diasAte(r.vencimento) > dias) continue
-    const c = m.get(r.corretorId) ?? { corretorId: r.corretorId, pendente: 0, cotando: 0, total: 0 }
+    const c = m.get(r.corretorId ?? SEM_CORRETOR) ?? { corretorId: r.corretorId ?? SEM_CORRETOR, pendente: 0, cotando: 0, total: 0 }
     if (r.status === 'pendente') c.pendente++
     else c.cotando++
     c.total++
-    m.set(r.corretorId, c)
+    m.set(r.corretorId ?? SEM_CORRETOR, c)
   }
   return [...m.values()].sort((a, b) => b.total - a.total)
 }
