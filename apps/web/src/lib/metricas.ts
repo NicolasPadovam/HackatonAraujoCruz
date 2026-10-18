@@ -1,7 +1,8 @@
 // Cálculos do Painel. Funções puras sobre o Db: sem acesso a rede nem a estado.
 // Usam apenas campos que a planilha de renovações já traz (nada de prêmio/comissão).
 
-import type { Db, Ramo, Renovacao, Seguro, StatusRenovacao } from '../domain/types'
+import type { Db, Ramo, Renovacao, Seguro } from '../domain/types'
+import { macroStatus, statusEmAberto, type Macro } from './atividades'
 import { addMeses, diasAte, hojeIso, mesKey, mesLabel, toIso } from './format'
 
 export const JANELA_MESES = 12
@@ -189,7 +190,7 @@ export function cargaPorCorretor(db: Db, dias = 30): Carga[] {
   const m = new Map<string, Carga>(db.corretores.map((c) => [c.id, { corretorId: c.id, pendente: 0, andamento: 0, total: 0 }]))
   for (const r of db.renovacoes) {
     if (!emAberto(r) || diasAte(r.vencimento) > dias) continue
-    const c = m.get(r.corretorId ?? SEM_CORRETOR) ?? { corretorId: r.corretorId ?? SEM_CORRETOR, pendente: 0, cotando: 0, total: 0 }
+    const c = m.get(r.corretorId ?? SEM_CORRETOR) ?? { corretorId: r.corretorId ?? SEM_CORRETOR, pendente: 0, andamento: 0, total: 0 }
     if (r.status === 'pendente') c.pendente++
     else c.andamento++
     c.total++
